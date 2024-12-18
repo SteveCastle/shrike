@@ -1,0 +1,107 @@
+{{ define "home" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SSE Example</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <h1>Server-Sent Events Demo</h1>
+    <form id="createForm">
+      <button type="submit">Create</button>
+      <input type="text" name="uri" id="uri" />
+    </form>
+    <!-- A list where we will append incoming messages -->
+    <div class="datatable">
+      <div class="header">
+        <div class="header-column">ID</div>
+        <div class="header-column">Input</div>
+        <div class="header-column">Command</div>
+        <div class="header-column">Arguments</div>
+        <div class="header-column">State</div>
+        <div class="header-column">CreatedAt</div>
+        <div class="header-column">Actions</div>
+      </div>
+      <div id="jobs" class="table-body">
+        {{range .Jobs}} {{template "job" .}} {{end}}
+      </div>
+    </div>
+    <script>
+      // Set up the SSE connection
+      const eventSource = new EventSource("/stream");
+
+      eventSource.addEventListener("create", (event) => {
+        // The event data is a json string, so parse it
+        const newJob = JSON.parse(event.data);
+
+        const node = htmlToNode(newJob.html);
+        const jobsElement = document.getElementById("jobs");
+        jobsElement.insertBefore(node, jobsElement.firstChild);
+      });
+
+      eventSource.addEventListener("update", (event) => {
+        // The event data is a json string, so parse it
+        const modifiedJob = JSON.parse(event.data);
+
+        const node = htmlToNode(modifiedJob.html);
+        const jobElement = document.getElementById(modifiedJob.job.id);
+        jobElement.replaceWith(node);
+      });
+
+      // Handle form submission by sending a fetch request
+      document
+        .getElementById("createForm")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+          const input = document.getElementById("uri").value;
+
+          // Send a POST request to the /create endpoint with the input value
+          fetch("/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input }),
+          })
+            .then((response) => response.text())
+            .then((result) => {
+              console.log("Server responded:", result);
+            })
+            .catch((err) => console.error("Error:", err));
+        });
+
+      // Handle Cancel Button Click
+      document.getElementById("jobs").addEventListener("click", function (e) {
+        e.preventDefault();
+        if (e.target.tagName === "BUTTON") {
+          const id = e.target.getAttribute("data-id");
+          fetch("/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          })
+            .then((response) => response.text())
+            .then((result) => {
+              console.log("Server responded:", result);
+            })
+            .catch((err) => console.error("Error:", err));
+        }
+      });
+
+      function htmlToNode(html) {
+        const template = document.createElement("template");
+        template.innerHTML = html.trim();
+        const nNodes = template.content.childNodes.length;
+        if (nNodes !== 1) {
+          throw new Error(
+            `html parameter must represent a single node; got ${nNodes}. ` +
+              "Note that leading or trailing spaces around an element in your " +
+              'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
+              "the element; call .trim() on your input to avoid this."
+          );
+        }
+        return template.content.firstChild;
+      }
+    </script>
+  </body>
+</html>
+{{ end }}

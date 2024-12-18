@@ -1,0 +1,62 @@
+.datatable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: sans-serif;
+}
+
+.header,
+.row {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1px solid #ccc;
+}
+
+.header {
+  font-weight: bold;
+  background-color: #f5f5f5;
+}
+
+.header-column,
+.table-cell {
+  flex: 1;
+  padding: 10px;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+/* Responsive Styles */
+@media screen and (max-width: 600px) {
+  /* Hide the header row */
+  .header {
+    display: none;
+  }
+
+  /* Each row becomes block, each cell stacked vertically */
+  .row {
+    display: block;
+    border-bottom: 2px solid #ccc;
+    margin-bottom: 15px;
+  }
+
+  /* Make cells display as blocks and use pseudo-elements to show labels */
+  .table-cell {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 10px 10px 50%;
+    position: relative;
+    border: none;
+    box-sizing: border-box;
+  }
+
+  .table-cell:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    width: 40%;
+    font-weight: bold;
+    white-space: nowrap;
+    box-sizing: border-box;
+  }
+}

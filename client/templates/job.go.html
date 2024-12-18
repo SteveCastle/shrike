@@ -1,0 +1,15 @@
+{{ define "job" }}
+<div class="row" id="{{ .ID }}">
+  <div class="table-cell">{{ .ID }}</div>
+  <div class="table-cell">{{ .Input }}</div>
+  <div class="table-cell">{{ .Command }}</div>
+  <div class="table-cell">{{ .Arguments }}</div>
+  <div class="table-cell">{{ .State }}</div>
+  <div class="table-cell">{{ .CreatedAt }}</div>
+  <div class="table-cell">
+    {{ if or (eq .State 0) (eq .State 1) }}
+    <button data-id="{{ .ID }}">Cancel</button>
+    {{ end }}
+  </div>
+</div>
+{{ end }}
