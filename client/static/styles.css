@@ -36,24 +36,25 @@ a {
 }
 
 button {
-  font-family: Arial, sans-serif;
-  font-size: 1em;
-  padding: 5px 8px;
-  margin: 5px;
-  background-color: #333;
-  border-radius: 2px;
-
-  color: #a1a1a1;
-  border: none;
+  background: none;
+  border: 1px solid #555;
+  color: #cfcfcf;
+  font-family: inherit;
+  font-size: 0.9em;
+  padding: 0.2em 0.5em;
   cursor: pointer;
-  border: 1px solid #333;
-  transition: border 0.6s cubic-bezier(0.075, 0.82, 0.165, 1),
-    color 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+  border-radius: 3px;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 button:hover {
-  border: 1px solid #656565;
-  color: #ffffff;
+  background: #333;
+  border-color: #333;
+}
+
+button:active {
+  background: #555;
+  border-color: #555;
 }
 
 .datatable {
@@ -68,7 +69,7 @@ button:hover {
 .header,
 .row {
   display: grid;
-  grid-template-columns: 2fr 1fr 2fr 2fr 1fr 1fr 1fr;
+  grid-template-columns: 60px 2fr 1fr 2fr 2fr 1fr 1fr;
   gap: 8px;
   border-bottom: 1px solid #333;
 }
@@ -171,4 +172,55 @@ button:hover {
   font-size: 1rem;
   /* Ensures the caret (insertion point) is visible and styled: */
   caret-color: #0f0;
+}
+
+/* Base styles for the job status circle */
+.job-status {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-block;
+  margin: 5px;
+}
+
+/* Pending: Subtle Yellow */
+.job-status.Pending {
+  background-color: #f1c40f; /* Soft yellow */
+  border: 1px solid #b89f0d; /* Subtle border */
+}
+
+/* In Progress: Rotating Outline */
+.job-status.InProgress {
+  background-color: transparent; /* Transparent center */
+  border: 2px solid #3498db; /* Blue border */
+  border-top-color: transparent; /* Transparent top border for rotation effect */
+  border-radius: 50%;
+  animation: rotate 1.5s linear infinite;
+}
+
+/* Complete: Subtle Green */
+.job-status.Completed {
+  background-color: #2ecc71; /* Soft green */
+  border: 1px solid #27ae60; /* Subtle border */
+}
+
+.job-status.Cancelled {
+  background-color: #f39c12; /* Soft orange */
+  border: 1px solid #d35400; /* Subtle border */
+}
+
+/* Errored: Subtle Red */
+.job-status.Error {
+  background-color: #e74c3c; /* Soft red */
+  border: 1px solid #c0392b; /* Subtle border */
+}
+
+/* Rotate animation for In Progress */
+@keyframes rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }

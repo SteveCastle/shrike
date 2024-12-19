@@ -8,37 +8,7 @@
     <link rel="stylesheet" href="/static/details.css" />
   </head>
   <body>
-    <header>
-      <h1>Job {{.Job.ID}}</h1>
-      <div class="meta-info">
-        <div>
-          <strong>Command:</strong> {{.Job.Command}} {{range
-          .Job.Arguments}}{{.}} {{end}} {{.Job.Input}}
-        </div>
-        {{- if .Job.CreatedAt.IsZero | not}}
-        <div><strong>Created At:</strong> {{formatTime .Job.CreatedAt}}</div>
-        {{- end}} {{- if .Job.CompletedAt.IsZero | not}}
-        <div>
-          <strong>Completed At:</strong>
-          <span id="completedAt">{{formatTime .Job.CompletedAt}}</span>
-        </div>
-        {{- end}} {{- if .Job.ErroredAt.IsZero | not}}
-        <div>
-          <strong>Errored At:</strong>
-          <span id="erroredAt">{{formatTime .Job.ErroredAt}}</span>
-        </div>
-        {{- end}}
-        <div>
-          <strong>State:</strong> <span id="state">{{.Job.State}}</span>
-        </div>
-        {{- if .Job.Dependencies}}
-        <div>
-          <strong>Dependencies:</strong> {{range .Job.Dependencies}}{{.}}
-          {{end}}
-        </div>
-        {{- end}}
-      </div>
-    </header>
+    {{template "detailHeader" .Job}}
     <div class="terminal">
       <div class="terminal-content">
         {{range $index, $line := .Job.Stdout }}
@@ -61,7 +31,8 @@
             newLine.className = "terminal-line";
             newLine.textContent = data.line;
             container.appendChild(newLine);
-            container.scrollTop = container.scrollHeight;
+            container.parentElement.scrollTop =
+              container.parentElement.scrollHeight;
           }
         });
 
@@ -70,21 +41,46 @@
           console.log(data);
           if (data.job.id === "{{.Job.ID}}") {
             // Update the jobs state
-            document.getElementById("state").innerText = data.job.state;
+            const stateString = jobStateToString(data.job.state);
+            document.getElementById("state").innerText = stateString;
 
-            // update either the completed or errored at time
-            if (data.job.completedAt) {
-              document.getElementById("completedAt").innerText =
-                data.job.completedAt;
+            if (
+              stateString === "Completed" ||
+              stateString === "Cancelled" ||
+              stateString === "Error"
+            ) {
+              document.getElementById("cancel").style.display = "none";
             }
 
-            if (data.job.erroredAt) {
+            // update either the completed or errored at time
+            if (data.job.completed_at) {
+              document.getElementById("completedAt").innerText =
+                data.job.completed_at;
+            }
+
+            if (data.job.errored_at) {
               document.getElementById("erroredAt").innerText =
-                data.job.erroredAt;
+                data.job.errored_at;
             }
           }
         });
       });
+
+      function cancelJob(e) {
+        e.preventDefault();
+        const id = e.target.getAttribute("data-id");
+        fetch("/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        })
+          .then((response) => response.text())
+          .then((result) => {
+            console.log("Server responded:", result);
+          })
+          .catch((err) => console.error("Error:", err));
+      }
+
       function htmlToNode(html) {
         const template = document.createElement("template");
         template.innerHTML = html.trim();
@@ -98,6 +94,23 @@
           );
         }
         return template.content.firstChild;
+      }
+
+      function jobStateToString(state) {
+        switch (state) {
+          case 0:
+            return "Pending";
+          case 1:
+            return "InProgress";
+          case 2:
+            return "Completed";
+          case 3:
+            return "Cancelled";
+          case 4:
+            return "Error";
+          default:
+            return "Unknown";
+        }
       }
     </script>
   </body>

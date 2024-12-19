@@ -64,6 +64,13 @@ func detailHandler(queue *jobqueue.Queue) http.HandlerFunc {
 
 		id := r.PathValue("id")
 		job := queue.GetJob(id)
+
+		// If job is nil, return 404
+		if job == nil {
+			http.Error(w, "Job not found", http.StatusNotFound)
+			return
+		}
+
 		data := DetailTemplateData{Job: job}
 
 		if err := renderer.Templates().ExecuteTemplate(w, "detail", data); err != nil {
