@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stevecastle/shrike/renderer"
 	"github.com/stevecastle/shrike/stream"
 )
 
@@ -30,15 +30,6 @@ const (
 	StateCancelled
 	StateError
 )
-
-var tmpl, _ = template.New("").Funcs(template.FuncMap{
-	"formatTime": func(t time.Time) string {
-		return t.Format("Jan 2, 2006 15:04:05")
-	},
-}).ParseFiles("client/templates/job.go.html")
-
-
-
 
 func (s JobState) String() string {
 	switch s {
@@ -122,7 +113,7 @@ func (q *Queue) AddJob(input string, command string, arguments []string) (string
 
 	// Broadcast the new job to the Signal channel
 	q.Signal <- id
-	error := serializeUpdate("create", job)
+	error := serializeListUpdate("create", job)
 	if error != nil {
 		return "", error
 	}
@@ -142,7 +133,7 @@ func (q *Queue) ClaimJob() (*Job, error) {
 		if job.State == StatePending && q.canClaim(job) {
 			job.State = StateInProgress
 			job.ClaimedAt = time.Now()
-			err := serializeUpdate("update", job)
+			err := serializeListUpdate("update", job)
 			if err != nil {
 				return nil, err
 			}
@@ -186,7 +177,7 @@ func (q *Queue) ErrorJob(id string) error {
 
 	job.State = StateError
 	job.ErroredAt = time.Now()
-	err := serializeUpdate("update", job)
+	err := serializeListUpdate("update", job)
 	if err != nil {
 		return nil
 	}
@@ -209,7 +200,7 @@ func (q *Queue) CancelJob(id string) error {
 	job.Cancel()
 	job.State = StateCancelled
 
-	err := serializeUpdate("update", job)
+	err := serializeListUpdate("update", job)
 	if err != nil {
 		return err
 	}
@@ -253,7 +244,7 @@ func (q *Queue) CompleteJob(id string) error {
 
 	job.State = StateCompleted
 	job.CompletedAt = time.Now()
-	err := serializeUpdate("update", job)
+	err := serializeListUpdate("update", job)
 	if err != nil {
 		return nil
 	}
@@ -295,11 +286,11 @@ type SerializedStdout struct {
 	Line string `json:"line"`
 }
 
-// serializeUpdate serializes the given job and broadcasts it with the specified update type.
+// serializeListUpdate serializes the given job and broadcasts it with the specified update type.
 // It returns an error if template execution or JSON marshalling fails.
-func serializeUpdate(updateType string, job *Job) error {
+func serializeListUpdate(updateType string, job *Job) error {
 	var html bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&html, "job", job); err != nil {
+	if err := renderer.Templates().ExecuteTemplate(&html, "jobRow", job); err != nil {
 		return fmt.Errorf("error executing template: %v", err)
 	}
 

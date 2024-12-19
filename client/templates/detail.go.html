@@ -13,7 +13,7 @@
       <div class="meta-info">
         <div>
           <strong>Command:</strong> {{.Job.Command}} {{range
-          .Job.Arguments}}{{.}} {{end}}
+          .Job.Arguments}}{{.}} {{end}} {{.Job.Input}}
         </div>
         {{- if .Job.CreatedAt.IsZero | not}}
         <div><strong>Created At:</strong> {{formatTime .Job.CreatedAt}}</div>

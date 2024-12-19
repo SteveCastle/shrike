@@ -6,10 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"text/template"
-	"time"
 
 	"github.com/stevecastle/shrike/jobqueue"
+	"github.com/stevecastle/shrike/renderer"
 	"github.com/stevecastle/shrike/runners"
 	"github.com/stevecastle/shrike/stream"
 )
@@ -22,12 +21,6 @@ type Command struct {
 	Command string
 	Arguments    []string
 }
-
-var tmpl,_ = template.New("").Funcs(template.FuncMap{
-	"formatTime": func(t time.Time) string {
-		return t.Format("Jan 2, 2006 15:04:05")
-	},
-}).ParseGlob("client/templates/*.go.html")
 
 func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +44,7 @@ func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 		// GET request
 		data := ListTemplateData{Jobs: queue.GetJobs()}
 
-		if err := tmpl.ExecuteTemplate(w, "home", data); err != nil {
+		if err := renderer.Templates().ExecuteTemplate(w, "home", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -73,7 +66,7 @@ func detailHandler(queue *jobqueue.Queue) http.HandlerFunc {
 		job := queue.GetJob(id)
 		data := DetailTemplateData{Job: job}
 
-		if err := tmpl.ExecuteTemplate(w, "detail", data); err != nil {
+		if err := renderer.Templates().ExecuteTemplate(w, "detail", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
