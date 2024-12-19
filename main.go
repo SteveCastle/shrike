@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"text/template"
 	"time"
 
@@ -71,7 +72,6 @@ func detailHandler(queue *jobqueue.Queue) http.HandlerFunc {
 
 		id := r.PathValue("id")
 		job := queue.GetJob(id)
-		fmt.Println("Job: ", job)
 		data := DetailTemplateData{Job: job}
 
 		if err := tmpl.ExecuteTemplate(w, "detail", data); err != nil {
@@ -94,7 +94,11 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 		defer body.Close()
 		var req CreateJobHandlerRequest
 		readJSONBody(r, &req)
-		queue.AddJob(req.Input,"gallery-dl", []string{"-d", "X:/scrapes/"})
+// Split the input string on spaces the first item is the command and the rest are arguments, the last is the input
+		args := strings.Split(req.Input, " ")
+		input := args[len(args)-1]
+		args = args[:len(args)-1]
+		queue.AddJob(input, args[0], args[1:])
 		w.WriteHeader(http.StatusOK)
 	}
 }

@@ -5,76 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Job {{.Job.ID}}</title>
-    <style>
-      body {
-        margin: 0;
-        font-family: monospace;
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-      }
-
-      header {
-        background: #333;
-        padding: 1em;
-        display: flex;
-        flex-direction: column;
-      }
-
-      header h1 {
-        margin: 0;
-        color: #ffffff;
-        font-size: 1.5em;
-      }
-
-      header .meta-info {
-        margin-top: 0.5em;
-        font-size: 0.9em;
-        color: #aaaaaa;
-      }
-
-      .terminal {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        background: #1e1e1e;
-        overflow-y: auto;
-        border-top: 2px solid #333;
-      }
-
-      .terminal-content {
-        padding: 1em;
-      }
-
-      .terminal-line {
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        line-height: 1.4em;
-      }
-
-      /* Scrollbar styling */
-      .terminal::-webkit-scrollbar {
-        width: 8px;
-      }
-      .terminal::-webkit-scrollbar-track {
-        background: #2a2a2a;
-      }
-      .terminal::-webkit-scrollbar-thumb {
-        background: #555;
-        border-radius: 4px;
-      }
-
-      footer {
-        background: #333;
-        color: #aaaaaa;
-        font-size: 0.8em;
-        padding: 0.5em 1em;
-        text-align: right;
-        flex-shrink: 0;
-      }
-    </style>
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <header>
@@ -88,12 +19,18 @@
         <div><strong>Created At:</strong> {{formatTime .Job.CreatedAt}}</div>
         {{- end}} {{- if .Job.CompletedAt.IsZero | not}}
         <div>
-          <strong>Completed At:</strong> {{formatTime .Job.CompletedAt}}
+          <strong>Completed At:</strong>
+          <span id="completedAt">{{formatTime .Job.CompletedAt}}</span>
         </div>
         {{- end}} {{- if .Job.ErroredAt.IsZero | not}}
-        <div><strong>Errored At:</strong> {{formatTime .Job.ErroredAt}}</div>
+        <div>
+          <strong>Errored At:</strong>
+          <span id="erroredAt">{{formatTime .Job.ErroredAt}}</span>
+        </div>
         {{- end}}
-        <div><strong>State:</strong> {{.Job.State}}</div>
+        <div>
+          <strong>State:</strong> <span id="state">{{.Job.State}}</span>
+        </div>
         {{- if .Job.Dependencies}}
         <div>
           <strong>Dependencies:</strong> {{range .Job.Dependencies}}{{.}}
@@ -102,15 +39,67 @@
         {{- end}}
       </div>
     </header>
-
     <div class="terminal">
       <div class="terminal-content">
         {{range $index, $line := .Job.Stdout }}
-        <div class="terminal-line">{{ $line }}</div>
+        <div class="terminal-line">{{$line}}</div>
         {{end}}
       </div>
     </div>
     <footer></footer>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        var eventSource = new EventSource("/stream");
+
+        // Listen for stdout events and append the line to the terminal
+        eventSource.addEventListener("stdout-{{.Job.ID}}", function (e) {
+          var data = JSON.parse(e.data);
+          if (data.line) {
+            var container = document.querySelector(".terminal-content");
+            var newLine = document.createElement("div");
+            newLine.className = "terminal-line";
+            newLine.textContent = data.line;
+            container.appendChild(newLine);
+            container.scrollTop = container.scrollHeight;
+          }
+        });
+
+        eventSource.addEventListener("update", function (e) {
+          var data = JSON.parse(e.data);
+          console.log(data);
+          if (data.job.id === "{{.Job.ID}}") {
+            // Update the jobs state
+            document.getElementById("state").innerText = data.job.state;
+
+            // update either the completed or errored at time
+            if (data.job.completedAt) {
+              document.getElementById("completedAt").innerText =
+                data.job.completedAt;
+            }
+
+            if (data.job.erroredAt) {
+              document.getElementById("erroredAt").innerText =
+                data.job.erroredAt;
+            }
+          }
+        });
+      });
+      function htmlToNode(html) {
+        const template = document.createElement("template");
+        template.innerHTML = html.trim();
+        const nNodes = template.content.childNodes.length;
+        if (nNodes !== 1) {
+          throw new Error(
+            `html parameter must represent a single node; got ${nNodes}. ` +
+              "Note that leading or trailing spaces around an element in your " +
+              'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
+              "the element; call .trim() on your input to avoid this."
+          );
+        }
+        return template.content.firstChild;
+      }
+    </script>
   </body>
 </html>
-{{end}}
+{{ end }}

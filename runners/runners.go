@@ -1,6 +1,7 @@
 package runners
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os/exec"
@@ -70,7 +71,7 @@ func (r *Runners) tryFetchJobAndRun() {
 
 	job, err := r.queue.ClaimJob()
 	if err != nil || job == nil {
-		// No job available or error encountered (could log or handle err if needed).
+		// No job available or error encountered.
 		return
 	}
 
@@ -78,26 +79,63 @@ func (r *Runners) tryFetchJobAndRun() {
 }
 
 // executeCommand runs the job command and updates the job state accordingly.
+// It streams stdout lines to PushJobStdout in real time.
 func (r *Runners) executeCommand(j *jobqueue.Job) {
 	ctx := j.Ctx
 	fmt.Println("Executing job:", j.ID, j.Command, j.Arguments)
+
 	// append j.Input to the end of arguments
 	args := append(j.Arguments, j.Input)
-
-	cmd := exec.CommandContext(ctx, j.Command, args...,)
+	cmd := exec.CommandContext(ctx, j.Command, args...)
 
 	// Provide input to stdin if specified
 	if j.Input != "" {
 		cmd.Stdin = stringToReadCloser(j.Input)
 	}
 
-	err := cmd.Run()
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		// If we can't get a stdout pipe, mark job as errored.
+		_ = r.queue.ErrorJob(j.ID)
+		return
+	}
 
-	// Check if the context was canceled during execution
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		_ = r.queue.ErrorJob(j.ID)
+		return
+	}
+
+	// Read stdout lines in a separate goroutine
+	doneReading := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Push each line to the queue as it arrives
+			_ = r.queue.PushJobStdout(j.ID, line)
+		}
+
+		if err := scanner.Err(); err != nil && err != io.EOF {
+			_ = r.queue.ErrorJob(j.ID)
+		}
+
+		close(doneReading)
+	}()
+
+
+
+	// Wait for the command to finish
+	err = cmd.Wait()
+
+	// Ensure we've finished reading from stdoutPipe
+	<-doneReading
+
+	// Check if the context was canceled
 	select {
 	case <-ctx.Done():
-		// Job was canceled. We consider it errored due to cancellation.
-		_ = r.queue.ErrorJob(j.ID) // Consider handling error returns.
+		// Job was canceled. Mark as errored (or canceled).
+		_ = r.queue.ErrorJob(j.ID)
 		return
 	default:
 		// Context not canceled, proceed with normal error handling.
@@ -105,13 +143,13 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
 
 	if err != nil {
 		// Command failed
-		_ = r.queue.ErrorJob(j.ID) // Consider handling error returns.
+		_ = r.queue.ErrorJob(j.ID)
 		return
 	}
 
 	// Command succeeded
 	fmt.Println("Job completed:", j.ID)
-	_ = r.queue.CompleteJob(j.ID) // Consider handling error returns.
+	_ = r.queue.CompleteJob(j.ID)
 }
 
 // stringToReadCloser helps provide input to the command's stdin.

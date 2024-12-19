@@ -63,7 +63,7 @@ type Job struct {
 	Command 	string `json:"command"`
 	Arguments []string
 	Input 	string `json:"input"`
-	Stdout 	[]string `json:"stdout"`
+	Stdout 	[]string `json:"-"`
 	Dependencies []string `json:"dependencies"` // IDs of jobs that must complete before this one
 	State        JobState `json:"state"`
 	Ctx       context.Context    `json:"-"`
@@ -122,7 +122,7 @@ func (q *Queue) AddJob(input string, command string, arguments []string) (string
 
 	// Broadcast the new job to the Signal channel
 	q.Signal <- id
-	error := createSerializedMessage("create", job)
+	error := serializeUpdate("create", job)
 	if error != nil {
 		return "", error
 	}
@@ -142,7 +142,7 @@ func (q *Queue) ClaimJob() (*Job, error) {
 		if job.State == StatePending && q.canClaim(job) {
 			job.State = StateInProgress
 			job.ClaimedAt = time.Now()
-			err := createSerializedMessage("update", job)
+			err := serializeUpdate("update", job)
 			if err != nil {
 				return nil, err
 			}
@@ -186,7 +186,7 @@ func (q *Queue) ErrorJob(id string) error {
 
 	job.State = StateError
 	job.ErroredAt = time.Now()
-	err := createSerializedMessage("update", job)
+	err := serializeUpdate("update", job)
 	if err != nil {
 		return nil
 	}
@@ -209,7 +209,7 @@ func (q *Queue) CancelJob(id string) error {
 	job.Cancel()
 	job.State = StateCancelled
 
-	err := createSerializedMessage("update", job)
+	err := serializeUpdate("update", job)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (q *Queue) PushJobStdout(id string, stdout string) error {
 	}
 
 	job.Stdout = append(job.Stdout, stdout)
-	err := createSerializedMessage(job.ID, job)
+	err := serializeStdout(stdout, id)
 	if err != nil {
 		return nil
 	}
@@ -253,7 +253,7 @@ func (q *Queue) CompleteJob(id string) error {
 
 	job.State = StateCompleted
 	job.CompletedAt = time.Now()
-	err := createSerializedMessage("update", job)
+	err := serializeUpdate("update", job)
 	if err != nil {
 		return nil
 	}
@@ -283,25 +283,51 @@ func (q *Queue) GetJob(id string) *Job {
 	return job
 }
 
-// createSerializedMessage serializes the given job and broadcasts it with the specified update type.
+
+type SerializedJob struct {
+	UpdateType string `json:"updateType"`
+	Job Job `json:"job"`
+	HTML string `json:"html"`
+}
+
+type SerializedStdout struct {
+	UpdateType string `json:"updateType"`
+	Line string `json:"line"`
+}
+
+// serializeUpdate serializes the given job and broadcasts it with the specified update type.
 // It returns an error if template execution or JSON marshalling fails.
-func createSerializedMessage(updateType string, job *Job) error {
+func serializeUpdate(updateType string, job *Job) error {
 	var html bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&html, "job", job); err != nil {
 		return fmt.Errorf("error executing template: %v", err)
 	}
 
-	serializedEvent := SerialziedEvent{
+	serializedEvent := SerializedJob{
 		UpdateType: updateType,
 		Job:        *job,
 		HTML:       html.String(),
 	}
-
 	j, err := json.Marshal(serializedEvent)
 	if err != nil {
 		return fmt.Errorf("error marshalling event: %v", err)
 	}
 
 	stream.Broadcast(stream.Message{Type: updateType, Msg: string(j)})
+	return nil
+}
+
+func serializeStdout(line string, id string) error {
+	serializedEvent := SerializedStdout{
+		UpdateType: "stdout",
+		Line:       line,
+	}
+
+	j, err := json.Marshal(serializedEvent)
+	if err != nil {
+		return fmt.Errorf("error marshalling event: %v", err)
+	}
+	//Type should be in the format `stdout-<job-id>`
+	stream.Broadcast(stream.Message{Type: "stdout-" + id, Msg: string(j)})
 	return nil
 }
