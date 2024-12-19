@@ -36,7 +36,10 @@
     <script>
       // Set up the SSE connection
       const eventSource = new EventSource("/stream");
-
+      window.addEventListener("beforeunload", () => {
+        eventSource.close();
+        console.log("EventSource connection closed.");
+      });
       eventSource.addEventListener("create", (event) => {
         const newJob = JSON.parse(event.data);
         const node = htmlToNode(newJob.html);

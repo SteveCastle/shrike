@@ -24,6 +24,7 @@ type Message struct {
 // addClient registers a new client channel
 func AddClient(c clientChan) {
 	clientsMu.Lock()
+	fmt.Println("Adding client")
 	defer clientsMu.Unlock()
 	clients[c] = true
 }
@@ -31,6 +32,7 @@ func AddClient(c clientChan) {
 // removeClient removes a client channel
 func RemoveClient(c clientChan) {
 	clientsMu.Lock()
+	fmt.Println("Removing client")
 	defer clientsMu.Unlock()
 	delete(clients, c)
 	close(c)
