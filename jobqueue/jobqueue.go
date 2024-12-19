@@ -31,7 +31,13 @@ const (
 	StateError
 )
 
-var tmpl = template.Must(template.ParseFiles("client/templates/job.go.html"))
+var tmpl, _ = template.New("").Funcs(template.FuncMap{
+	"formatTime": func(t time.Time) string {
+		return t.Format("Jan 2, 2006 15:04:05")
+	},
+}).ParseFiles("client/templates/job.go.html")
+
+
 
 
 func (s JobState) String() string {
@@ -57,6 +63,7 @@ type Job struct {
 	Command 	string `json:"command"`
 	Arguments []string
 	Input 	string `json:"input"`
+	Stdout 	[]string `json:"stdout"`
 	Dependencies []string `json:"dependencies"` // IDs of jobs that must complete before this one
 	State        JobState `json:"state"`
 	Ctx       context.Context    `json:"-"`
@@ -210,6 +217,25 @@ func (q *Queue) CancelJob(id string) error {
 	return nil
 }
 
+// UpdateJobStdout updates the job's stdout with the given string.
+func (q *Queue) PushJobStdout(id string, stdout string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, exists := q.Jobs[id]
+	if !exists {
+		return errors.New("job not found")
+	}
+
+	job.Stdout = append(job.Stdout, stdout)
+	err := createSerializedMessage(job.ID, job)
+	if err != nil {
+		return nil
+	}
+	return nil
+}
+
+
 // CompleteJob marks the specified job as completed if it is currently InProgress.
 // Returns an error if the job does not exist, or if it's not in a valid state to be completed.
 func (q *Queue) CompleteJob(id string) error {
@@ -245,6 +271,16 @@ func (q *Queue) GetJobs() []Job {
 		jobs = append(jobs, *q.Jobs[q.JobOrder[i]])
 	}
 	return jobs
+}
+
+func (q *Queue) GetJob(id string) *Job {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	job, exists := q.Jobs[id]
+	if !exists {
+		return nil
+	}
+	return job
 }
 
 // createSerializedMessage serializes the given job and broadcasts it with the specified update type.

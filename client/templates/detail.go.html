@@ -1,0 +1,116 @@
+{{ define "detail" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Job {{.Job.ID}}</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: monospace;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      header {
+        background: #333;
+        padding: 1em;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header h1 {
+        margin: 0;
+        color: #ffffff;
+        font-size: 1.5em;
+      }
+
+      header .meta-info {
+        margin-top: 0.5em;
+        font-size: 0.9em;
+        color: #aaaaaa;
+      }
+
+      .terminal {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #1e1e1e;
+        overflow-y: auto;
+        border-top: 2px solid #333;
+      }
+
+      .terminal-content {
+        padding: 1em;
+      }
+
+      .terminal-line {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        line-height: 1.4em;
+      }
+
+      /* Scrollbar styling */
+      .terminal::-webkit-scrollbar {
+        width: 8px;
+      }
+      .terminal::-webkit-scrollbar-track {
+        background: #2a2a2a;
+      }
+      .terminal::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 4px;
+      }
+
+      footer {
+        background: #333;
+        color: #aaaaaa;
+        font-size: 0.8em;
+        padding: 0.5em 1em;
+        text-align: right;
+        flex-shrink: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Job {{.Job.ID}}</h1>
+      <div class="meta-info">
+        <div>
+          <strong>Command:</strong> {{.Job.Command}} {{range
+          .Job.Arguments}}{{.}} {{end}}
+        </div>
+        {{- if .Job.CreatedAt.IsZero | not}}
+        <div><strong>Created At:</strong> {{formatTime .Job.CreatedAt}}</div>
+        {{- end}} {{- if .Job.CompletedAt.IsZero | not}}
+        <div>
+          <strong>Completed At:</strong> {{formatTime .Job.CompletedAt}}
+        </div>
+        {{- end}} {{- if .Job.ErroredAt.IsZero | not}}
+        <div><strong>Errored At:</strong> {{formatTime .Job.ErroredAt}}</div>
+        {{- end}}
+        <div><strong>State:</strong> {{.Job.State}}</div>
+        {{- if .Job.Dependencies}}
+        <div>
+          <strong>Dependencies:</strong> {{range .Job.Dependencies}}{{.}}
+          {{end}}
+        </div>
+        {{- end}}
+      </div>
+    </header>
+
+    <div class="terminal">
+      <div class="terminal-content">
+        {{range $index, $line := .Job.Stdout }}
+        <div class="terminal-line">{{ $line }}</div>
+        {{end}}
+      </div>
+    </div>
+    <footer></footer>
+  </body>
+</html>
+{{end}}

@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <h1>Server-Sent Events Demo</h1>
+    <h1>Shrike Job Manager</h1>
     <form id="createForm">
       <button type="submit">Create</button>
       <input type="text" name="uri" id="uri" />
@@ -70,22 +70,20 @@
         });
 
       // Handle Cancel Button Click
-      document.getElementById("jobs").addEventListener("click", function (e) {
+      function cancelJob(e) {
         e.preventDefault();
-        if (e.target.tagName === "BUTTON") {
-          const id = e.target.getAttribute("data-id");
-          fetch("/cancel", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id }),
+        const id = e.target.getAttribute("data-id");
+        fetch("/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        })
+          .then((response) => response.text())
+          .then((result) => {
+            console.log("Server responded:", result);
           })
-            .then((response) => response.text())
-            .then((result) => {
-              console.log("Server responded:", result);
-            })
-            .catch((err) => console.error("Error:", err));
-        }
-      });
+          .catch((err) => console.error("Error:", err));
+      }
 
       function htmlToNode(html) {
         const template = document.createElement("template");
