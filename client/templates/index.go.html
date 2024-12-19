@@ -5,40 +5,6 @@
     <meta charset="UTF-8" />
     <title>Shrike Job Manager</title>
     <link rel="stylesheet" href="/static/styles.css" />
-    <style>
-      /* Styles for the terminal-like input */
-      #createForm {
-        display: flex;
-        align-items: center;
-        margin-bottom: 1em;
-      }
-
-      #uri {
-        background: transparent;
-        border: none;
-        outline: none;
-        width: 100%;
-        color: #0f0;
-        font-family: monospace;
-        font-size: 1rem;
-        /* Ensures the caret (insertion point) is visible and styled: */
-        caret-color: #0f0;
-      }
-
-      /* Optional: a subtle blinking caret animation can be added with pseudo-elements.
-         However, modern browsers show the caret blinking by default. If you want a custom animation:
-
-         @keyframes blink {
-           0% { opacity: 1; }
-           50% { opacity: 0; }
-           100% { opacity: 1; }
-         }
-         
-         #uri:focus {
-           animation: blink 1s step-start infinite;
-         }
-      */
-    </style>
   </head>
   <body>
     <h1>Shrike Job Manager</h1>

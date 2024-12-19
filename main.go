@@ -17,18 +17,17 @@ import (
 type ListTemplateData struct {
 	Jobs []jobqueue.Job
 }
-var tmpl,_ = template.New("").Funcs(template.FuncMap{
-	"formatTime": func(t time.Time) string {
-		return t.Format("Jan 2, 2006 15:04:05")
-	},
-}).ParseGlob("client/templates/*.go.html")
-
-
 
 type Command struct {
 	Command string
 	Arguments    []string
 }
+
+var tmpl,_ = template.New("").Funcs(template.FuncMap{
+	"formatTime": func(t time.Time) string {
+		return t.Format("Jan 2, 2006 15:04:05")
+	},
+}).ParseGlob("client/templates/*.go.html")
 
 func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

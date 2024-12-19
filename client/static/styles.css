@@ -38,12 +38,22 @@ a {
 button {
   font-family: Arial, sans-serif;
   font-size: 1em;
-  padding: 5px;
+  padding: 5px 8px;
   margin: 5px;
   background-color: #333;
-  color: #ffffff;
+  border-radius: 2px;
+
+  color: #a1a1a1;
   border: none;
   cursor: pointer;
+  border: 1px solid #333;
+  transition: border 0.6s cubic-bezier(0.075, 0.82, 0.165, 1),
+    color 0.6s cubic-bezier(0.075, 0.82, 0.165, 1);
+}
+
+button:hover {
+  border: 1px solid #656565;
+  color: #ffffff;
 }
 
 .datatable {
@@ -57,8 +67,9 @@ button {
 
 .header,
 .row {
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: 2fr 1fr 2fr 2fr 1fr 1fr 1fr;
+  gap: 8px;
   border-bottom: 1px solid #333;
 }
 
@@ -70,7 +81,7 @@ button {
 
 .header-column,
 .table-cell {
-  flex: 1;
+  position: relative;
   padding: 10px;
   text-align: left;
   box-sizing: border-box;
@@ -78,75 +89,18 @@ button {
   white-space: nowrap;
   display: flex;
   align-items: center;
+  overflow: hidden;
 }
 
-body {
-  margin: 0;
-  font-family: monospace;
-  background-color: #1e1e1e;
-  color: #d4d4d4;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-header {
-  background: #333;
-  padding: 1em;
-  display: flex;
-  flex-direction: column;
-}
-
-header h1 {
-  margin: 0;
-  color: #ffffff;
-  font-size: 1.5em;
-}
-
-header .meta-info {
-  margin-top: 0.5em;
-  font-size: 0.9em;
-  color: #aaaaaa;
-}
-
-.terminal {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: #1e1e1e;
-  overflow-y: auto;
-  border-top: 2px solid #333;
-}
-
-.terminal-content {
-  padding: 1em;
-}
-
-.terminal-line {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  line-height: 1.4em;
-}
-
-/* Scrollbar styling */
-.terminal::-webkit-scrollbar {
-  width: 8px;
-}
-.terminal::-webkit-scrollbar-track {
-  background: #2a2a2a;
-}
-.terminal::-webkit-scrollbar-thumb {
-  background: #555;
-  border-radius: 4px;
-}
-
-footer {
-  background: #333;
-  color: #aaaaaa;
-  font-size: 0.8em;
-  padding: 0.5em 1em;
-  text-align: right;
-  flex-shrink: 0;
+/* Fade out overflow on right edge with gradient after element */
+.table-cell:after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 20px;
+  height: 100%;
+  background: linear-gradient(to right, rgba(30, 30, 30, 0), #1e1e1e);
 }
 
 /* Responsive Styles */
@@ -203,11 +157,12 @@ footer {
 #createForm {
   display: flex;
   align-items: center;
-  margin-bottom: 1em;
+  margin: 0.5rem;
 }
 
 #uri {
   background: transparent;
+  border-radius: 4px;
   border: none;
   outline: none;
   width: 100%;
