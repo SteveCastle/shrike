@@ -85,7 +85,7 @@ func NewQueue() *Queue {
 
 // AddJob adds a new job to the queue with the given dependencies.
 // It generates a UUID for the job and returns it.
-func (q *Queue) AddJob(input string, command string, arguments []string) (string, error) {
+func (q *Queue) AddJob(command string, arguments []string, input string) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 

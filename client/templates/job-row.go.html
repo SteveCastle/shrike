@@ -16,6 +16,14 @@
     >
       Cancel
     </button>
+    {{ else }}
+    <button
+      data-id="{{ .ID }}"
+      class="cancel-button"
+      onClick="runJob(event)"
+    >
+      Re-run
+    </button>
     {{ end }}
   </div>
 </div>

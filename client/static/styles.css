@@ -41,6 +41,7 @@ button {
   color: #cfcfcf;
   font-family: inherit;
   font-size: 0.9em;
+  margin: 0 0.2rem;
   padding: 0.2em 0.5em;
   cursor: pointer;
   border-radius: 3px;
@@ -176,8 +177,8 @@ button:active {
 
 /* Base styles for the job status circle */
 .job-status {
-  width: 16px;
-  height: 16px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   display: inline-block;
   margin: 5px;
@@ -186,7 +187,6 @@ button:active {
 /* Pending: Subtle Yellow */
 .job-status.Pending {
   background-color: #f1c40f; /* Soft yellow */
-  border: 1px solid #b89f0d; /* Subtle border */
 }
 
 /* In Progress: Rotating Outline */
@@ -201,18 +201,15 @@ button:active {
 /* Complete: Subtle Green */
 .job-status.Completed {
   background-color: #2ecc71; /* Soft green */
-  border: 1px solid #27ae60; /* Subtle border */
 }
 
 .job-status.Cancelled {
   background-color: #f39c12; /* Soft orange */
-  border: 1px solid #d35400; /* Subtle border */
 }
 
 /* Errored: Subtle Red */
 .job-status.Error {
   background-color: #e74c3c; /* Soft red */
-  border: 1px solid #c0392b; /* Subtle border */
 }
 
 /* Rotate animation for In Progress */

@@ -82,7 +82,10 @@ func (r *Runners) tryFetchJobAndRun() {
 // It streams stdout and stderr lines to PushJobStdout in real time.
 func (r *Runners) executeCommand(j *jobqueue.Job) {
     ctx := j.Ctx
-    fmt.Println("Executing job:", j.ID, j.Command, j.Arguments)
+    fmt.Println("Executing job:", j.ID, j.Command, j.Arguments, j.Input)
+
+
+
 
     // append j.Input to the end of arguments
     args := append(j.Arguments, j.Input)
@@ -97,6 +100,7 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
     if err != nil {
         // If we can't get a stdout pipe, mark job as errored.
         _ = r.queue.ErrorJob(j.ID)
+        fmt.Println(err)
         return
     }
 
@@ -104,12 +108,14 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
     if err != nil {
         // If we can't get a stderr pipe, mark job as errored.
         _ = r.queue.ErrorJob(j.ID)
+        fmt.Println(err)
         return
     }
 
     // Start the command
     if err := cmd.Start(); err != nil {
         _ = r.queue.ErrorJob(j.ID)
+        fmt.Println(err)
         return
     }
 
@@ -128,6 +134,7 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
         }
         if err := scanner.Err(); err != nil && err != io.EOF {
             _ = r.queue.ErrorJob(j.ID)
+            fmt.Println(err)
         }
 
         // Signal one reader is done
@@ -156,6 +163,7 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
     case <-ctx.Done():
         // Job was canceled. Mark as errored (or canceled).
         _ = r.queue.ErrorJob(j.ID)
+        fmt.Println(err)
         return
     default:
         // Context not canceled, proceed with normal error handling.
@@ -164,6 +172,7 @@ func (r *Runners) executeCommand(j *jobqueue.Job) {
     if err != nil {
         // Command failed
         _ = r.queue.ErrorJob(j.ID)
+        fmt.Println(err)
         return
     }
 

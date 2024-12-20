@@ -34,56 +34,94 @@
       </div>
     </div>
     <script>
-      // Set up the SSE connection
-      const eventSource = new EventSource("/stream");
-      window.addEventListener("beforeunload", () => {
-        eventSource.close();
-        console.log("EventSource connection closed.");
-      });
-      eventSource.addEventListener("create", (event) => {
-        const newJob = JSON.parse(event.data);
-        const node = htmlToNode(newJob.html);
-        const jobsElement = document.getElementById("jobs");
-        jobsElement.insertBefore(node, jobsElement.firstChild);
-      });
+      document.addEventListener("DOMContentLoaded", function () {
+        // Handle form submission by sending a fetch request
+        document
+          .getElementById("createForm")
+          .addEventListener("submit", function (e) {
+            e.preventDefault();
+            const input = document.getElementById("uri").value;
 
-      eventSource.addEventListener("update", (event) => {
-        const modifiedJob = JSON.parse(event.data);
-        const node = htmlToNode(modifiedJob.html);
-        const jobElement = document.getElementById(modifiedJob.job.id);
-        jobElement.replaceWith(node);
-      });
-
-      // Handle form submission by sending a fetch request
-      document
-        .getElementById("createForm")
-        .addEventListener("submit", function (e) {
-          e.preventDefault();
-          const input = document.getElementById("uri").value;
-
-          // Send a POST request to the /create endpoint
-          fetch("/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ input }),
-          })
-            .then((response) => response.text())
-            .then((result) => {
-              console.log("Server responded:", result);
-              // Clear the input after submit
-              document.getElementById("uri").value = "";
+            // Send a POST request to the /create endpoint
+            fetch("/create", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ input }),
             })
-            .catch((err) => console.error("Error:", err));
+              .then((response) => response.text())
+              .then((result) => {
+                console.log("Server responded:", result);
+                // Clear the input after submit
+                document.getElementById("uri").value = "";
+              })
+              .catch((err) => console.error("Error:", err));
+          });
+      });
+
+      document.addEventListener("DOMContentLoaded", function () {
+        let eventSource = null;
+        const connectEventSource = () => {
+          if (!navigator.onLine) {
+            console.warn("Offline. EventSource will not connect.");
+            return;
+          }
+
+          console.log("Connecting to EventSource...");
+          eventSource = new EventSource("/stream");
+
+          eventSource.onopen = () => {
+            console.log("EventSource connected.");
+          };
+
+          eventSource.onerror = (error) => {
+            console.error("EventSource error:", error);
+            if (eventSource.readyState === EventSource.CLOSED) {
+              console.log("Retrying EventSource connection in 3 seconds...");
+              setTimeout(connectEventSource, 3000); // Retry connection after 3 seconds
+            }
+          };
+
+          eventSource.addEventListener("create", (event) => {
+            const newJob = JSON.parse(event.data);
+            const node = htmlToNode(newJob.html);
+            const jobsElement = document.getElementById("jobs");
+            jobsElement.insertBefore(node, jobsElement.firstChild);
+          });
+
+          eventSource.addEventListener("update", (event) => {
+            const modifiedJob = JSON.parse(event.data);
+            const node = htmlToNode(modifiedJob.html);
+            const jobElement = document.getElementById(modifiedJob.job.id);
+            jobElement.replaceWith(node);
+          });
+        };
+
+        connectEventSource();
+
+        window.addEventListener("beforeunload", (e) => {
+          console.log(e);
+          if (eventSource) {
+            eventSource.close();
+            console.log("EventSource connection closed.");
+          }
         });
+
+        window.addEventListener("online", connectEventSource);
+        window.addEventListener("offline", () => {
+          if (eventSource) {
+            eventSource.close();
+            console.log("EventSource closed due to offline status.");
+          }
+        });
+      });
 
       // Handle Cancel Button Click
       function cancelJob(e) {
         e.preventDefault();
         const id = e.target.getAttribute("data-id");
-        fetch("/cancel", {
+        fetch(`/job/${id}/cancel`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
         })
           .then((response) => response.text())
           .then((result) => {
