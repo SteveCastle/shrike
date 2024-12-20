@@ -121,6 +121,45 @@ func (q *Queue) AddJob(command string, arguments []string, input string) (string
 	return id, nil
 }
 
+
+func (q *Queue) CopyJob(id string) (string, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, exists := q.Jobs[id]
+	if !exists {
+		return "", errors.New("job not found")
+	}
+
+	newID := uuid.NewString()
+	if _, exists := q.Jobs[newID]; exists {
+		return "", errors.New("job with given ID already exists")
+	}
+
+	newJob := *job
+	newJob.ID = newID
+	newJob.Stdout = []string{}
+	newJob.State = StatePending
+	newJob.CreatedAt = time.Now()
+	newJob.ClaimedAt = time.Time{}
+	newJob.CompletedAt = time.Time{}
+	newJob.ErroredAt = time.Time{}
+	newJob.Cancel = nil
+	newJob.Ctx = context.Background()
+
+	q.Jobs[newID] = &newJob
+	q.JobOrder = append(q.JobOrder, newID)
+
+	// Broadcast the new job to the Signal channel
+	q.Signal <- newID
+	error := serializeListUpdate("create", &newJob)
+	if error != nil {
+		return "", error
+	}
+
+	return newID, nil
+}
+
 // ClaimJob tries to find a pending job whose dependencies are all completed,
 // in FIFO order. If successful, it returns the job and marks it as InProgress.
 // If no suitable job is found, it returns nil and no error.

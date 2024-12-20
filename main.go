@@ -119,6 +119,18 @@ func cancelHandler(queue *jobqueue.Queue) http.HandlerFunc {
 	}
 }
 
+func copyHandler(queue *jobqueue.Queue) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		ID := r.PathValue("id")
+		queue.CopyJob(ID)
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
 
 func main() {
 	queue := jobqueue.NewQueue()
@@ -127,6 +139,7 @@ func main() {
 	http.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(queue)))
 	http.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(queue)))
 	http.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(queue)))
+	http.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(queue)))
 	http.HandleFunc("/stream", stream.StreamHandler)
 	http.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(queue)))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("client/static"))))
