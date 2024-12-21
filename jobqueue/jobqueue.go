@@ -67,6 +67,13 @@ type Job struct {
 	ErroredAt   time.Time `json:"errored_at"`
 }
 
+type Workflow struct {
+	Command 	string `json:"command"`
+	Arguments []string
+	Input 	string `json:"input"`
+	Children []Workflow `json:"children"`
+}
+
 // Queue is a thread-safe structure that manages Jobs with dependencies.
 type Queue struct {
 	mu       sync.Mutex
@@ -85,7 +92,7 @@ func NewQueue() *Queue {
 
 // AddJob adds a new job to the queue with the given dependencies.
 // It generates a UUID for the job and returns it.
-func (q *Queue) AddJob(command string, arguments []string, input string) (string, error) {
+func (q *Queue) AddJob(wf Workflow) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -99,9 +106,9 @@ func (q *Queue) AddJob(command string, arguments []string, input string) (string
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:           id,
-		Input: input,
-		Command: command,
-		Arguments: arguments,
+		Input: wf.Input,
+		Command: wf.Command,
+		Arguments: wf.Arguments,
 		Dependencies: nil,
 		State:        StatePending,
 		Ctx: ctx,
@@ -121,7 +128,6 @@ func (q *Queue) AddJob(command string, arguments []string, input string) (string
 	return id, nil
 }
 
-
 func (q *Queue) CopyJob(id string) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -135,6 +141,7 @@ func (q *Queue) CopyJob(id string) (string, error) {
 	if _, exists := q.Jobs[newID]; exists {
 		return "", errors.New("job with given ID already exists")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	newJob := *job
 	newJob.ID = newID
@@ -144,8 +151,8 @@ func (q *Queue) CopyJob(id string) (string, error) {
 	newJob.ClaimedAt = time.Time{}
 	newJob.CompletedAt = time.Time{}
 	newJob.ErroredAt = time.Time{}
-	newJob.Cancel = nil
-	newJob.Ctx = context.Background()
+	newJob.Cancel = cancel
+	newJob.Ctx = ctx
 
 	q.Jobs[newID] = &newJob
 	q.JobOrder = append(q.JobOrder, newID)

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/stevecastle/shrike/jobqueue"
+	"github.com/stevecastle/shrike/tasks"
 )
 
 // Runners manages a pool of concurrent job runners.
@@ -58,7 +59,13 @@ func (r *Runners) runJob(j *jobqueue.Job) {
 			r.mu.Unlock()
 		}()
 
-		r.executeCommand(j)
+
+        tasksMap := tasks.GetTasks()
+        if task, exists := tasksMap[j.Command]; exists {
+            task.Fn(j, r.queue)
+        } else {
+            r.executeCommand(j)
+        }
 	}()
 }
 

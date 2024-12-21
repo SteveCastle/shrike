@@ -31,8 +31,12 @@ func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 			fmt.Println("Error decoding JSON: ", err)
 			return
 		}
-		// Strip the last arg from the args array and assign it to the input
-		queue.AddJob(c.Command, c.Arguments[:len(c.Arguments)-1], c.Arguments[len(c.Arguments)-1])
+		workflow := jobqueue.Workflow{
+			Command: c.Command,
+			Arguments: c.Arguments[:len(c.Arguments)-1],
+			Input: c.Arguments[len(c.Arguments)-1],
+		}
+		queue.AddJob(workflow)
 		}
 		// GET request
 		data := ListTemplateData{Jobs: queue.GetJobs()}
@@ -96,8 +100,12 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 		} else {
 			args = []string{}
 		}
-
-		queue.AddJob(command, args, input)
+		workflow := jobqueue.Workflow{
+			Command: command,
+			Arguments: args,
+			Input: input,
+		}
+		queue.AddJob(workflow)
 		w.WriteHeader(http.StatusOK)
 	}
 }
