@@ -1,9 +1,7 @@
 {{ define "jobRow" }}
 <div class="row" id="{{ .ID }}">
   <div class="table-cell"><span class="job-status {{.State}}"></div>
-
-  <div class="table-cell"><a href="/job/{{.ID}}">{{ .ID }}</a></div>
-  <div class="table-cell">{{ .Command }}</div>
+  <div class="table-cell"><a href="/job/{{.ID}}">{{ .Command }}</a></div>
   <div class="table-cell">{{ .Arguments }}</div>
   <div class="table-cell">{{ .Input }}</div>
   <div class="table-cell">{{ formatTime .CreatedAt }}</div>
