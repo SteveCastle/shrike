@@ -35,8 +35,8 @@ func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 			Command: c.Command,
 			Arguments: c.Arguments[:len(c.Arguments)-1],
 			Input: c.Arguments[len(c.Arguments)-1],
-		}
-		queue.AddJob(workflow)
+			}
+		queue.AddWorkflow(workflow)
 		}
 		// GET request
 		data := ListTemplateData{Jobs: queue.GetJobs()}
@@ -105,8 +105,15 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 			Arguments: args,
 			Input: input,
 		}
-		queue.AddJob(workflow)
-		w.WriteHeader(http.StatusOK)
+		id, err := queue.AddWorkflow(workflow)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"id": id})
 	}
 }
 

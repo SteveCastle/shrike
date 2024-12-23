@@ -86,16 +86,15 @@ type Queue struct {
 func NewQueue() *Queue {
 	return &Queue{
 		Jobs: make(map[string]*Job),
-		Signal : make(chan string),
+		Signal : make(chan string, 100),
 	}
 }
 
 // AddJob adds a new job to the queue with the given dependencies.
 // It generates a UUID for the job and returns it.
-func (q *Queue) AddJob(wf Workflow) (string, error) {
+func (q *Queue) AddJob(command string, arguments []string, input string, dependencies []string) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-
 	id := uuid.NewString()
 	if _, exists := q.Jobs[id]; exists {
 		// Extremely unlikely to happen due to UUID uniqueness,
@@ -106,10 +105,10 @@ func (q *Queue) AddJob(wf Workflow) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:           id,
-		Input: wf.Input,
-		Command: wf.Command,
-		Arguments: wf.Arguments,
-		Dependencies: nil,
+		Input: input,
+		Command: command,
+		Arguments: arguments,
+		Dependencies: dependencies,
 		State:        StatePending,
 		Ctx: ctx,
 		Cancel: cancel,
@@ -126,6 +125,23 @@ func (q *Queue) AddJob(wf Workflow) (string, error) {
 	}
 
 	return id, nil
+}
+
+// Recurses through the workflow and adds each job from the bottom up, adding dependencies as it goes.
+// Dpes not acquire lock, so must be called from a function that does.
+func (q *Queue) AddWorkflow(w Workflow) (string, error) {
+	// Add all the children and accumulate thier ids for the dependencies
+
+	dependencies := []string{}
+
+	for _, child := range w.Children {
+		id, err := q.AddWorkflow(child)
+		if err != nil {
+			return "", err
+		}
+		dependencies = append(dependencies, id)
+	}
+	return q.AddJob(w.Command, w.Arguments, w.Input, dependencies)
 }
 
 func (q *Queue) CopyJob(id string) (string, error) {
