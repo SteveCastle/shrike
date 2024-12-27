@@ -1,10 +1,6 @@
 package runners
 
 import (
-	"bufio"
-	"fmt"
-	"io"
-	"os/exec"
 	"sync"
 
 	"github.com/stevecastle/shrike/jobqueue"
@@ -62,10 +58,11 @@ func (r *Runners) runJob(j *jobqueue.Job) {
 
         tasksMap := tasks.GetTasks()
         if task, exists := tasksMap[j.Command]; exists {
-            task.Fn(j, r.queue)
-        } else {
-            r.executeCommand(j)
+            task.Fn(j, r.queue, &r.mu)
         }
+
+		// If the task is not found, we should mark the job as failed.
+		r.queue.ErrorJob(j.ID)
 	}()
 }
 
@@ -83,129 +80,4 @@ func (r *Runners) tryFetchJobAndRun() {
 	}
 
 	r.runJob(job)
-}
-
-// executeCommand runs the job command and updates the job state accordingly.
-// It streams stdout and stderr lines to PushJobStdout in real time.
-func (r *Runners) executeCommand(j *jobqueue.Job) {
-    ctx := j.Ctx
-    fmt.Println("Executing job:", j.ID, j.Command, j.Arguments, j.Input)
-
-
-
-
-    // append j.Input to the end of arguments
-    args := append(j.Arguments, j.Input)
-    cmd := exec.CommandContext(ctx, j.Command, args...)
-
-    // Provide input to stdin if specified
-    if j.Input != "" {
-        cmd.Stdin = stringToReadCloser(j.Input)
-    }
-
-    stdoutPipe, err := cmd.StdoutPipe()
-    if err != nil {
-        // If we can't get a stdout pipe, mark job as errored.
-        _ = r.queue.ErrorJob(j.ID)
-        fmt.Println(err)
-        return
-    }
-
-    stderrPipe, err := cmd.StderrPipe()
-    if err != nil {
-        // If we can't get a stderr pipe, mark job as errored.
-        _ = r.queue.ErrorJob(j.ID)
-        fmt.Println(err)
-        return
-    }
-
-    // Start the command
-    if err := cmd.Start(); err != nil {
-        _ = r.queue.ErrorJob(j.ID)
-        fmt.Println(err)
-        return
-    }
-
-    // We'll use two goroutines to read stdout and stderr
-    doneReading := make(chan struct{})
-    doneCount := 0
-    totalReaders := 2
-
-    // Helper function to scan a pipe and push lines to the queue
-    scanAndPush := func(pipe io.ReadCloser) {
-        scanner := bufio.NewScanner(pipe)
-        for scanner.Scan() {
-            line := scanner.Text()
-            // Push each line (stdout or stderr) to the queue as it arrives
-            _ = r.queue.PushJobStdout(j.ID, line)
-        }
-        if err := scanner.Err(); err != nil && err != io.EOF {
-            _ = r.queue.ErrorJob(j.ID)
-            fmt.Println(err)
-        }
-
-        // Signal one reader is done
-        r.mu.Lock()
-        doneCount++
-        if doneCount == totalReaders {
-            close(doneReading)
-        }
-        r.mu.Unlock()
-    }
-
-    // Read stdout lines in a separate goroutine
-    go scanAndPush(stdoutPipe)
-
-    // Read stderr lines in a separate goroutine
-    go scanAndPush(stderrPipe)
-
-    // Wait for the command to finish
-    err = cmd.Wait()
-
-    // Ensure we've finished reading from both stdout and stderr
-    <-doneReading
-
-    // Check if the context was canceled
-    select {
-    case <-ctx.Done():
-        // Job was canceled. Mark as errored (or canceled).
-        _ = r.queue.ErrorJob(j.ID)
-        fmt.Println(err)
-        return
-    default:
-        // Context not canceled, proceed with normal error handling.
-    }
-
-    if err != nil {
-        // Command failed
-        _ = r.queue.ErrorJob(j.ID)
-        fmt.Println(err)
-        return
-    }
-
-    // Command succeeded
-    fmt.Println("Job completed:", j.ID)
-    _ = r.queue.CompleteJob(j.ID)
-}
-
-// stringToReadCloser helps provide input to the command's stdin.
-func stringToReadCloser(s string) io.ReadCloser {
-	return &stringReadCloser{data: []byte(s)}
-}
-
-type stringReadCloser struct {
-	data []byte
-}
-
-func (r *stringReadCloser) Read(p []byte) (int, error) {
-	if len(r.data) == 0 {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data)
-	r.data = r.data[n:]
-	return n, nil
-}
-
-func (r *stringReadCloser) Close() error {
-	return nil
 }
