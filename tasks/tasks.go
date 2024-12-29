@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,23 +27,41 @@ var tasks TaskMap
 func init() {
 	tasks = make(TaskMap)
 	// Register a task that waits 5 seconds then completes
-	RegisterTask("wait", "Wait", func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
-		// Get the context from the job
-		ctx := j.Ctx
-		for i := 0; i < 5; i++ {
-			select {
-			case <-ctx.Done(): // Listen for context cancellation
-				q.PushJobStdout(j.ID, "Task was canceled")
-				return ctx.Err() // Return the context's error (e.g., context.Canceled)
-			case <-time.After(1 * time.Second): // Wait for 1 second
-				q.PushJobStdout(j.ID, "Waiting in task...")
-			}
-		}
-		// Complete the job
-		q.CompleteJob(j.ID)
-		return nil
-	})
-	RegisterTask("gallery-dl", "Execute", executeCommand)
+	RegisterTask("wait", "Wait", waitFn)
+
+ // Load all files in the ./scripts directory and create a command with the file name minus the extension
+    // This will allow us to execute any script in the ./scripts directory by sending a command with the same name
+    // as the script file.
+    // This is a simple way to allow for dynamic script execution without hardcoding each script.
+
+    // Open the scripts directory
+    dir, err := os.Open("./scripts")
+    if err != nil {
+        fmt.Println("Error opening scripts directory:", err)
+        return
+    }
+    defer dir.Close()
+
+    // Read all files in the directory
+    files, err := dir.Readdir(0)
+    if err != nil {
+        fmt.Println("Error reading scripts directory:", err)
+        return
+    }
+
+    // Loop through each file
+    for _, file := range files {
+        // If the file is a regular file (not a directory or symlink)
+        if file.Mode().IsRegular() {
+            // Get the file name
+            name := file.Name()
+            // Get the file name without the extension
+            command := strings.TrimSuffix(name, filepath.Ext(name))
+            // Register the task with the command name
+            RegisterTask(command, command, executeCommand)
+        }
+    }
+
 }
 
 
@@ -54,6 +75,7 @@ func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, m
 	}
 }
 
+
 func GetTasks() TaskMap {
 
 	return tasks
@@ -63,16 +85,19 @@ func executeCommand(j *jobqueue.Job,q *jobqueue.Queue, mu *sync.Mutex) error {
     ctx := j.Ctx
     fmt.Println("Executing job:", j.ID, j.Command, j.Arguments, j.Input)
 
-
-
+// the script is located in ./scripts/{j.Command}.ps1
+    script := fmt.Sprintf("./scripts/%s.ps1", j.Command)
 
     // append j.Input to the end of arguments
-    args := append(j.Arguments, j.Input)
-    cmd := exec.CommandContext(ctx, j.Command, args...)
+    powershellArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script}
+    doubleQuoteWrapped := fmt.Sprintf("\"%s\"", j.Input)
+    scriptArgs := append(j.Arguments, doubleQuoteWrapped)
+    args := append(powershellArgs, scriptArgs...)
+    cmd := exec.CommandContext(ctx, "powershell", args...)
 
     // Provide input to stdin if specified
-    if j.Input != "" {
-        cmd.Stdin = stringToReadCloser(j.Input)
+    if j.StdIn != nil {
+        cmd.Stdin = j.StdIn
     }
 
     stdoutPipe, err := cmd.StdoutPipe()
@@ -162,24 +187,19 @@ func executeCommand(j *jobqueue.Job,q *jobqueue.Queue, mu *sync.Mutex) error {
     return nil
 }
 
-// stringToReadCloser helps provide input to the command's stdin.
-func stringToReadCloser(s string) io.ReadCloser {
-	return &stringReadCloser{data: []byte(s)}
-}
-
-type stringReadCloser struct {
-	data []byte
-}
-
-func (r *stringReadCloser) Read(p []byte) (int, error) {
-	if len(r.data) == 0 {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data)
-	r.data = r.data[n:]
-	return n, nil
-}
-
-func (r *stringReadCloser) Close() error {
-	return nil
+func waitFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+    // Get the context from the job
+    ctx := j.Ctx
+    for i := 0; i < 5; i++ {
+        select {
+        case <-ctx.Done(): // Listen for context cancellation
+            q.PushJobStdout(j.ID, "Task was canceled")
+            return ctx.Err() // Return the context's error (e.g., context.Canceled)
+        case <-time.After(1 * time.Second): // Wait for 1 second
+            q.PushJobStdout(j.ID, "Waiting in task...")
+        }
+    }
+    // Complete the job
+    q.CompleteJob(j.ID)
+    return nil
 }

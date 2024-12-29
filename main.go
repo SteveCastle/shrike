@@ -87,7 +87,7 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 // Split the input string on spaces the first item is the command and the rest are arguments, the last is the input
 // only the command is guranteed to be present, args and input may be empty
 
-		args := strings.Fields(req.Input)
+		args := ParseCommand(req.Input)
 		if len(args) == 0 {
 			http.Error(w, "Invalid input", http.StatusBadRequest)
 			return
@@ -167,39 +167,43 @@ func readJSONBody(r *http.Request, v interface{}) error {
 	return json.NewDecoder(body).Decode(v)
 }
 
-func ParseCommandLine(input string) (string, []string) {
-	var args []string
-	var current strings.Builder
-	inQuotes := false
 
-	for _, char := range input {
-		switch char {
-		case '"':
-			inQuotes = !inQuotes // Toggle the inQuotes flag
-		case ' ':
-			if inQuotes {
-				current.WriteRune(char) // Add space if inside quotes
-			} else {
-				if current.Len() > 0 {
-					args = append(args, current.String())
-					current.Reset()
-				}
-			}
-		default:
-			current.WriteRune(char)
-		}
-	}
 
-	// Add the last token if it exists
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-
-	if len(args) == 0 {
-		return "", nil // No command provided
-	}
-
-	command := args[0]       // First token is the command
-	arguments := args[1:]    // Remaining tokens are arguments
-	return command, arguments
+func ParseCommand(input string) []string {
+    var result []string
+    var current strings.Builder
+    inQuotes := false
+    
+    // Iterate through each rune in the input string
+    for i := 0; i < len(input); i++ {
+        char := input[i]
+        
+        switch char {
+        case '"':
+            // Toggle quote state
+            inQuotes = !inQuotes
+            
+        case ' ':
+            if inQuotes {
+                // If we're in quotes, space is part of the current argument
+                current.WriteByte(char)
+            } else if current.Len() > 0 {
+                // If we're not in quotes and have accumulated characters,
+                // add the current argument to result and reset
+                result = append(result, current.String())
+                current.Reset()
+            }
+            
+        default:
+            // Add character to current argument
+            current.WriteByte(char)
+        }
+    }
+    
+    // Add the last argument if there's anything remaining
+    if current.Len() > 0 {
+        result = append(result, current.String())
+    }
+    
+    return result
 }

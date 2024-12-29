@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -55,6 +56,8 @@ type Job struct {
 	Arguments []string
 	Input 	string `json:"input"`
 	Stdout 	[]string `json:"-"`
+	StdoutRaw 	io.Reader `json:"-"` // Raw stdout stream
+	StdIn 	io.Reader `json:"-"`
 	Dependencies []string `json:"dependencies"` // IDs of jobs that must complete before this one
 	State        JobState `json:"state"`
 	Ctx       context.Context    `json:"-"`
