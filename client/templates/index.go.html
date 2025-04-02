@@ -93,6 +93,14 @@
             const jobElement = document.getElementById(modifiedJob.job.id);
             jobElement.replaceWith(node);
           });
+
+          eventSource.addEventListener("delete", (event) => {
+            const message = JSON.parse(event.data);
+            console.log("deleted job", message)
+            const jobElement = document.getElementById(message.job?.id);
+            console.log("job element:", jobElement)
+            jobElement.remove();
+          });
         };
 
         connectEventSource();
@@ -133,6 +141,20 @@
         e.preventDefault();
         const id = e.target.getAttribute("data-id");
         fetch(`/job/${id}/copy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+          .then((response) => response.text())
+          .then((result) => {
+            console.log("Server responded:", result);
+          })
+          .catch((err) => console.error("Error:", err));
+      }
+
+      function removeJob(e) {
+        e.preventDefault();
+        const id = e.target.getAttribute("data-id");
+        fetch(`/job/${id}/remove`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         })

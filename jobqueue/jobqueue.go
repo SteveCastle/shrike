@@ -20,8 +20,8 @@ type JobState int
 
 type SerialziedEvent struct {
 	UpdateType string `json:"updateType"`
-	Job Job `json:"job"`
-	HTML string `json:"html"`
+	Job        Job    `json:"job"`
+	HTML       string `json:"html"`
 }
 
 const (
@@ -52,16 +52,16 @@ func (s JobState) String() string {
 // Job represents an individual task in the queue.
 type Job struct {
 	ID           string `json:"id"` // Unique identifier for the job
-	Command 	string `json:"command"`
-	Arguments []string
-	Input 	string `json:"input"`
-	Stdout 	[]string `json:"-"`
-	StdoutRaw 	io.Reader `json:"-"` // Raw stdout stream
-	StdIn 	io.Reader `json:"-"`
-	Dependencies []string `json:"dependencies"` // IDs of jobs that must complete before this one
-	State        JobState `json:"state"`
-	Ctx       context.Context    `json:"-"`
-	Cancel   context.CancelFunc `json:"-"`
+	Command      string `json:"command"`
+	Arguments    []string
+	Input        string             `json:"input"`
+	Stdout       []string           `json:"-"`
+	StdoutRaw    io.Reader          `json:"-"` // Raw stdout stream
+	StdIn        io.Reader          `json:"-"`
+	Dependencies []string           `json:"dependencies"` // IDs of jobs that must complete before this one
+	State        JobState           `json:"state"`
+	Ctx          context.Context    `json:"-"`
+	Cancel       context.CancelFunc `json:"-"`
 
 	// Timestamps for various states
 	CreatedAt   time.Time `json:"created_at"`
@@ -71,10 +71,10 @@ type Job struct {
 }
 
 type Workflow struct {
-	Command 	string `json:"command"`
+	Command   string `json:"command"`
 	Arguments []string
-	Input 	string `json:"input"`
-	Children []Workflow `json:"children"`
+	Input     string     `json:"input"`
+	Children  []Workflow `json:"children"`
 }
 
 // Queue is a thread-safe structure that manages Jobs with dependencies.
@@ -82,14 +82,14 @@ type Queue struct {
 	mu       sync.Mutex
 	Jobs     map[string]*Job
 	JobOrder []string // Keep track of the order in which jobs are added
-	Signal chan string
+	Signal   chan string
 }
 
 // NewQueue initializes and returns a new Queue.
 func NewQueue() *Queue {
 	return &Queue{
-		Jobs: make(map[string]*Job),
-		Signal : make(chan string, 100),
+		Jobs:   make(map[string]*Job),
+		Signal: make(chan string, 100),
 	}
 }
 
@@ -108,13 +108,13 @@ func (q *Queue) AddJob(command string, arguments []string, input string, depende
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:           id,
-		Input: input,
-		Command: command,
-		Arguments: arguments,
+		Input:        input,
+		Command:      command,
+		Arguments:    arguments,
 		Dependencies: dependencies,
 		State:        StatePending,
-		Ctx: ctx,
-		Cancel: cancel,
+		Ctx:          ctx,
+		Cancel:       cancel,
 		CreatedAt:    time.Now(),
 	}
 	q.Jobs[id] = job
@@ -291,7 +291,6 @@ func (q *Queue) PushJobStdout(id string, stdout string) error {
 	return nil
 }
 
-
 // CompleteJob marks the specified job as completed if it is currently InProgress.
 // Returns an error if the job does not exist, or if it's not in a valid state to be completed.
 func (q *Queue) CompleteJob(id string) error {
@@ -323,7 +322,7 @@ func (q *Queue) GetJobs() []Job {
 	defer q.mu.Unlock()
 	length := len(q.Jobs)
 	jobs := make([]Job, 0, length)
-	for  i := length - 1; i >= 0; i-- {
+	for i := length - 1; i >= 0; i-- {
 		jobs = append(jobs, *q.Jobs[q.JobOrder[i]])
 	}
 	return jobs
@@ -339,16 +338,38 @@ func (q *Queue) GetJob(id string) *Job {
 	return job
 }
 
+func (q *Queue) RemoveJob(id string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	_, exists := q.Jobs[id]
+	if !exists {
+		return errors.New("job not found")
+	}
+	delete(q.Jobs, id)
+	for i, jobId := range q.JobOrder {
+		if jobId == id {
+			q.JobOrder = append(q.JobOrder[:i], q.JobOrder[i+1:]...)
+			break
+		}
+
+	}
+
+	err := serializeListUpdate("delete", &Job{ID: id})
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 type SerializedJob struct {
 	UpdateType string `json:"updateType"`
-	Job Job `json:"job"`
-	HTML string `json:"html"`
+	Job        Job    `json:"job"`
+	HTML       string `json:"html"`
 }
 
 type SerializedStdout struct {
 	UpdateType string `json:"updateType"`
-	Line string `json:"line"`
+	Line       string `json:"line"`
 }
 
 // serializeListUpdate serializes the given job and broadcasts it with the specified update type.
