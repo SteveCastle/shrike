@@ -1,0 +1,35 @@
+{{ define "jobRow" }}
+<div class="row" id="{{ .ID }}">
+  <div class="table-cell"><span class="job-status {{.State}}"></div>
+  <div class="table-cell"><a href="/job/{{.ID}}">{{ .Command }}</a></div>
+  <div class="table-cell">{{ .Arguments }}</div>
+  <div class="table-cell">{{ .Input }}</div>
+  <div class="table-cell">{{ formatTime .CreatedAt }}</div>
+  <div class="table-cell">
+    {{ if or (eq .State 0) (eq .State 1) }}
+    <button
+      data-id="{{ .ID }}"
+      class="cancel-button"
+      onClick="cancelJob(event)"
+    >
+      Cancel
+    </button>
+    {{ else }}
+    <button
+      data-id="{{ .ID }}"
+      class="cancel-button"
+      onClick="restart(event)"
+    >
+      Restart
+    </button>
+    <button
+      data-id="{{ .ID }}"
+      class="remove-button"
+      onClick="removeJob(event)"
+    >
+    Remove
+  </button>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

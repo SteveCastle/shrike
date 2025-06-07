@@ -1,0 +1,39 @@
+{{ define "detailHeader" }}
+<header>
+  <div class="breadcrumbs">
+    <a href="/" class="breadcrumb-path">Job Queue</a>
+    <span class="breadcrumb-seperator"> > </span
+    ><span class="breadcrumb-leaf">Job {{.ID}}</span>
+    {{ if or (eq .State 0) (eq .State 1) }}
+    <button id="cancel" data-id="{{.ID}}" onClick="cancelJob(event)">
+      Cancel
+    </button>
+    {{end}}
+  </div>
+  <div class="meta-info">
+    <div>
+      <strong>Command:</strong> {{.Command}} {{range .Arguments}}{{.}} {{end}}
+      {{.Input}}
+    </div>
+    {{- if .CreatedAt.IsZero | not}}
+    <div><strong>Created At:</strong> {{formatTime .CreatedAt}}</div>
+    {{- end}} {{- if .CompletedAt.IsZero | not}}
+    <div>
+      <strong>Completed At:</strong>
+      <span id="completedAt">{{formatTime .CompletedAt}}</span>
+    </div>
+    {{- end}} {{- if .ErroredAt.IsZero | not}}
+    <div>
+      <strong>Errored At:</strong>
+      <span id="erroredAt">{{formatTime .ErroredAt}}</span>
+    </div>
+    {{- end}}
+    <div><strong>State:</strong> <span id="state">{{.State}}</span></div>
+    {{- if .Dependencies}}
+    <div>
+      <strong>Dependencies:</strong> {{range .Dependencies}}{{.}} {{end}}
+    </div>
+    {{- end}}
+  </div>
+</header>
+{{ end }}

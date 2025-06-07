@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/stevecastle/shrike/embedexec"
 	"github.com/stevecastle/shrike/jobqueue"
 )
 
@@ -77,74 +79,104 @@ func GetTasks() TaskMap {
 	return tasks
 }
 
+func normalizeArg(a string) string {
+	// Heuristic: if it contains a path separator or a "." near the end,
+	// treat it as a path.  Tweak as needed for your domain.
+	if !strings.ContainsAny(a, `/\`) && !strings.Contains(a, ".") {
+		return a // plain argument (flag, keyword, etc.)
+	}
+
+	clean := filepath.Clean(a)
+
+	// Convert to absolute when possible (fail-safe if $PWD disappears).
+	if abs, err := filepath.Abs(clean); err == nil {
+		clean = abs
+	}
+
+	// Use platform-native separators so the invoked program sees the
+	// right thing whether it’s on Windows or POSIX.
+	return filepath.FromSlash(clean)
+}
+
 func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	ctx := j.Ctx
 	fmt.Println("Executing job:", j.ID, j.Command, j.Arguments, j.Input)
 
-	// the script is located in ./scripts/{j.Command}.ps1
-	script := fmt.Sprintf("./scripts/%s.ps1", j.Command)
+	// ------------------------------------------------------------------
+	// 1. Build a *new* argument slice with normalised / escaped paths.
+	// ------------------------------------------------------------------
+	scriptArgs := make([]string, 0, len(j.Arguments)+1)
+	for _, a := range j.Arguments {
+		scriptArgs = append(scriptArgs, normalizeArg(a))
+	}
+	if j.Input != "" { // Input is just "the last arg"
+		scriptArgs = append(scriptArgs, (j.Input))
+	}
 
-	// append j.Input to the end of arguments
-	powershellArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script}
-	doubleQuoteWrapped := fmt.Sprintf("\"%s\"", j.Input)
-	scriptArgs := append(j.Arguments, doubleQuoteWrapped)
-	args := append(powershellArgs, scriptArgs...)
-	cmd := exec.CommandContext(ctx, "powershell", args...)
+	// ------------------------------------------------------------------
+	// 2. Extract + start the embedded executable.
+	// ------------------------------------------------------------------
+	cmd, cleanup, err := embedexec.Run(ctx, j.Command, scriptArgs...)
+	if err != nil {
+		_ = q.ErrorJob(j.ID)
+		return fmt.Errorf("start %q: %w", j.Command, err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
 
+	// Kill the child tree if the context is cancelled.
 	go func() {
 		<-ctx.Done()
 		if cmd.Process != nil {
-			exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid)).Run()
+			if runtime.GOOS == "windows" {
+				_ = exec.Command("taskkill", "/F", "/T", "/PID",
+					fmt.Sprintf("%d", cmd.Process.Pid)).Run()
+			} else {
+				_ = cmd.Process.Kill()
+			}
 		}
 	}()
 
-	// Provide input to stdin if specified
+	// ------------------------------------------------------------------
+	// 3. Wire up I/O.
+	// ------------------------------------------------------------------
 	if j.StdIn != nil {
 		cmd.Stdin = j.StdIn
 	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		// If we can't get a stdout pipe, mark job as errored.
 		_ = q.ErrorJob(j.ID)
-		fmt.Println(err)
-		return err
+		return fmt.Errorf("stdout pipe: %w", err)
 	}
-
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		// If we can't get a stderr pipe, mark job as errored.
 		_ = q.ErrorJob(j.ID)
-		fmt.Println(err)
-		return err
+		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	// Start the command
 	if err := cmd.Start(); err != nil {
 		_ = q.ErrorJob(j.ID)
-		fmt.Println(err)
-		return err
+		return fmt.Errorf("start: %w", err)
 	}
 
-	// We'll use two goroutines to read stdout and stderr
+	// ------------------------------------------------------------------
+	// 4. Stream stdout & stderr back to the queue.
+	// ------------------------------------------------------------------
 	doneReading := make(chan struct{})
-	doneCount := 0
 	totalReaders := 2
+	doneCount := 0
 
-	// Helper function to scan a pipe and push lines to the queue
 	scanAndPush := func(pipe io.ReadCloser) {
 		scanner := bufio.NewScanner(pipe)
 		for scanner.Scan() {
-			line := scanner.Text()
-			// Push each line (stdout or stderr) to the queue as it arrives
-			_ = q.PushJobStdout(j.ID, line)
+			_ = q.PushJobStdout(j.ID, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil && err != io.EOF {
 			_ = q.ErrorJob(j.ID)
 			fmt.Println(err)
 		}
-
-		// Signal one reader is done
 		mu.Lock()
 		doneCount++
 		if doneCount == totalReaders {
@@ -153,40 +185,29 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		mu.Unlock()
 	}
 
-	// Read stdout lines in a separate goroutine
 	go scanAndPush(stdoutPipe)
-
-	// Read stderr lines in a separate goroutine
 	go scanAndPush(stderrPipe)
 
-	// Wait for the command to finish
+	// ------------------------------------------------------------------
+	// 5. Wait for completion & tidy up.
+	// ------------------------------------------------------------------
 	err = cmd.Wait()
+	<-doneReading // ensure all output consumed
 
-	// Ensure we've finished reading from both stdout and stderr
-	<-doneReading
-
-	// Check if the context was canceled
 	select {
 	case <-ctx.Done():
-		// Job was canceled. Mark as errored (or canceled).
 		_ = q.ErrorJob(j.ID)
-		fmt.Println(err)
 		return ctx.Err()
 	default:
-		// Context not canceled, proceed with normal error handling.
 	}
 
 	if err != nil {
-		// Command failed
 		_ = q.ErrorJob(j.ID)
-		fmt.Println(err)
 		return err
 	}
 
-	// Command succeeded
 	fmt.Println("Job completed:", j.ID)
 	_ = q.CompleteJob(j.ID)
-
 	return nil
 }
 
