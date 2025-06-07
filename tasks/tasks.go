@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -30,40 +29,10 @@ func init() {
 	tasks = make(TaskMap)
 	// Register a task that waits 5 seconds then completes
 	RegisterTask("wait", "Wait", waitFn)
-
-	// Load all files in the ./scripts directory and create a command with the file name minus the extension
-	// This will allow us to execute any script in the ./scripts directory by sending a command with the same name
-	// as the script file.
-	// This is a simple way to allow for dynamic script execution without hardcoding each script.
-
-	// Open the scripts directory
-	dir, err := os.Open("./scripts")
-	if err != nil {
-		fmt.Println("Error opening scripts directory:", err)
-		return
-	}
-	defer dir.Close()
-
-	// Read all files in the directory
-	files, err := dir.Readdir(0)
-	if err != nil {
-		fmt.Println("Error reading scripts directory:", err)
-		return
-	}
-
-	// Loop through each file
-	for _, file := range files {
-		// If the file is a regular file (not a directory or symlink)
-		if file.Mode().IsRegular() {
-			// Get the file name
-			name := file.Name()
-			// Get the file name without the extension
-			command := strings.TrimSuffix(name, filepath.Ext(name))
-			// Register the task with the command name
-			RegisterTask(command, command, executeCommand)
-		}
-	}
-
+	RegisterTask("gallery-dl", "gallery-dl", executeCommand)
+	RegisterTask("dce/dce", "dce/dce", executeCommand)
+	RegisterTask("yt-dlp", "yt-dlp", executeCommand)
+	RegisterTask("ffmpeg", "ffmpeg", executeCommand)
 }
 
 func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error) {
@@ -116,8 +85,10 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	// ------------------------------------------------------------------
 	// 2. Extract + start the embedded executable.
 	// ------------------------------------------------------------------
-	cmd, cleanup, err := embedexec.Run(ctx, j.Command, scriptArgs...)
+	cmd, cleanup, err := embedexec.GetExec(ctx, j.Command, scriptArgs...)
 	if err != nil {
+		// Push the error to job stdout and mark the job as errored.
+		_ = q.PushJobStdout(j.ID, fmt.Sprintf("Error starting job: %s", err))
 		_ = q.ErrorJob(j.ID)
 		return fmt.Errorf("start %q: %w", j.Command, err)
 	}
@@ -147,16 +118,19 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error getting stdout pipe: %s", err))
 		_ = q.ErrorJob(j.ID)
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error getting stderr pipe: %s", err))
 		_ = q.ErrorJob(j.ID)
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error starting command: %s", err))
 		_ = q.ErrorJob(j.ID)
 		return fmt.Errorf("start: %w", err)
 	}
@@ -174,6 +148,8 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			_ = q.PushJobStdout(j.ID, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil && err != io.EOF {
+			// If there was an error reading the pipe, push it to stdout
+			_ = q.PushJobStdout(j.ID, fmt.Sprintf("Error reading pipe: %s", err))
 			_ = q.ErrorJob(j.ID)
 			fmt.Println(err)
 		}
@@ -196,12 +172,16 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 	select {
 	case <-ctx.Done():
+		// If the context is done, we assume the job was cancelled.
+		q.PushJobStdout(j.ID, "Task was canceled")
 		_ = q.ErrorJob(j.ID)
 		return ctx.Err()
 	default:
 	}
 
 	if err != nil {
+		// If there was an error waiting for the command, push it to stdout
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error waiting for command: %s", err))
 		_ = q.ErrorJob(j.ID)
 		return err
 	}

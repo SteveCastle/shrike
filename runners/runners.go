@@ -55,14 +55,15 @@ func (r *Runners) runJob(j *jobqueue.Job) {
 			r.mu.Unlock()
 		}()
 
-
-        tasksMap := tasks.GetTasks()
-        if task, exists := tasksMap[j.Command]; exists {
-            task.Fn(j, r.queue, &r.mu)
-        }
-
-		// If the task is not found, we should mark the job as failed.
-		r.queue.ErrorJob(j.ID)
+		tasksMap := tasks.GetTasks()
+		if task, exists := tasksMap[j.Command]; exists {
+			task.Fn(j, r.queue, &r.mu)
+		} else {
+			// If the task is not found, we should mark the job as failed.
+			r.queue.PushJobStdout(j.ID, "Task not found: "+j.Command)
+			r.queue.ErrorJob(j.ID)
+			return
+		}
 	}()
 }
 
