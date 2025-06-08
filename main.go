@@ -5,17 +5,17 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/kardianos/service"
+	"github.com/getlantern/systray"
+	"github.com/pkg/browser"
 
 	"github.com/stevecastle/shrike/jobqueue"
 	"github.com/stevecastle/shrike/renderer"
@@ -23,23 +23,34 @@ import (
 	"github.com/stevecastle/shrike/stream"
 )
 
-/* -----------------------------------------------------------------
- * Utility – run from the folder that contains the executable so the
- *           templates and static files are found when the service
- *           starts from C:\Windows\System32.
- * ----------------------------------------------------------------- */
+// -----------------------------------------------------------------------------
+// Embedded tray‑icon (.ico) file – place your icon at assets/logo.ico.
+// -----------------------------------------------------------------------------
+//
+//go:embed assets/logo.ico
+var iconData []byte
+
+// http server so we can shut it down from onExit.
+var srv *http.Server
+
+// -----------------------------------------------------------------------------
+// Utility – run from the folder that contains the executable so the templates
+//
+//	and static files are found even when launched from elsewhere.
+//
+// -----------------------------------------------------------------------------
 func init() {
-	exe, err := os.Executable()
-	if err == nil {
+	if exe, err := os.Executable(); err == nil {
 		_ = os.Chdir(filepath.Dir(exe))
 	}
 }
 
-/* -----------------------------------------------------------------
- * Web-handler helpers (unchanged from your original file)
- * ----------------------------------------------------------------- */
+// -----------------------------------------------------------------------------
+// Web‑handler helpers (unchanged from your original file)
+// -----------------------------------------------------------------------------
 
 type ListTemplateData struct{ Jobs []jobqueue.Job }
+
 type DetailTemplateData struct{ Job *jobqueue.Job }
 
 type Command struct {
@@ -49,7 +60,7 @@ type Command struct {
 
 func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		/* POST = legacy JSON workflow launch ------------------------- */
+		// POST = legacy JSON workflow launch
 		if r.Method == http.MethodPost {
 			var c Command
 			if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
@@ -64,7 +75,7 @@ func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 			queue.AddWorkflow(workflow)
 		}
 
-		/* GET – render job list ------------------------------------- */
+		// GET – render job list
 		data := ListTemplateData{Jobs: queue.GetJobs()}
 		if err := renderer.Templates().ExecuteTemplate(w, "home", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -199,19 +210,16 @@ func ParseCommand(input string) []string {
 	return result
 }
 
-/* -----------------------------------------------------------------
- * Windows-service integration
- * ----------------------------------------------------------------- */
+// -----------------------------------------------------------------------------
+// main – start server then hand control to the system‑tray UI.
+// -----------------------------------------------------------------------------
 
-type program struct {
-	server *http.Server
-}
-
-func (p *program) Start(s service.Service) error {
-	// ––––– set up queue, runners and handlers –––––
+func main() {
+	// ––– job queue and runners –––
 	queue := jobqueue.NewQueue()
 	runners.New(queue, 2)
 
+	// ––– routes –––
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(queue)))
 	mux.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(queue)))
@@ -222,67 +230,52 @@ func (p *program) Start(s service.Service) error {
 	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(queue)))
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("client/static"))))
 
-	p.server = &http.Server{
+	srv = &http.Server{
 		Addr:    ":8090",
 		Handler: mux,
 	}
 
-	// run the server in a goroutine so Start can return
+	// start HTTP server in background
 	go func() {
-		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("shrike-server: %v", err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("shrike-server: %v", err)
 		}
 	}()
 
-	return nil
+	// run tray icon (blocks until Quit)
+	systray.Run(onReady, onExit)
 }
 
-func (p *program) Stop(s service.Service) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// -----------------------------------------------------------------------------
+// systray lifecycle hooks
+// -----------------------------------------------------------------------------
+
+func onReady() {
+	systray.SetTemplateIcon(iconData, iconData)
+	systray.SetTitle("Shrike Job Server")
+	systray.SetTooltip("Shrike – click to open UI")
+
+	openItem := systray.AddMenuItem("Open Web UI", "Launch the browser")
+	systray.AddSeparator()
+	quitItem := systray.AddMenuItem("Quit", "Shut down Shrike")
+
+	// open UI once at startup
+	_ = browser.OpenURL("http://localhost:8090/")
+
+	// event loop
+	for {
+		select {
+		case <-openItem.ClickedCh:
+			_ = browser.OpenURL("http://localhost:8090/")
+		case <-quitItem.ClickedCh:
+			systray.Quit()
+			return
+		}
+	}
+}
+
+func onExit() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return p.server.Shutdown(ctx)
-}
-
-/* -----------------------------------------------------------------
- * main – console + service entry-point
- * ----------------------------------------------------------------- */
-
-func main() {
-	cfg := &service.Config{
-		Name:        "ShrikeServer",
-		DisplayName: "Shrike Job Server",
-		Description: "Background service hosting the Shrike job queue web UI",
-	}
-
-	prg := &program{}
-	svc, err := service.New(prg, cfg)
-	if err != nil {
-		log.Fatalf("cannot create service: %v", err)
-	}
-
-	// Support "install", "uninstall", "start", "stop", "restart", "status"
-	if len(os.Args) > 1 {
-		if err := service.Control(svc, os.Args[1]); err != nil {
-			log.Fatalf("service control failed: %v", err)
-		}
-		return
-	}
-
-	/* ---------- Interactive console (go run / debugging) ---------- */
-	if service.Interactive() {
-		if err := prg.Start(svc); err != nil {
-			log.Fatalf("start: %v", err)
-		}
-		// Wait for Ctrl-C or SIGTERM then shut down cleanly
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-		<-sig
-		_ = prg.Stop(svc)
-		return
-	}
-
-	/* -------------------- Real Windows service -------------------- */
-	if err := svc.Run(); err != nil {
-		log.Fatalf("run: %v", err)
-	}
+	_ = srv.Shutdown(ctx)
 }
