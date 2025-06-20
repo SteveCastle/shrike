@@ -5,8 +5,9 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -24,33 +25,51 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Embedded tray‑icon (.ico) file – place your icon at assets/logo.ico.
+// Embedded tray-icon (.ico) file – place your icon at assets/logo.ico.
 // -----------------------------------------------------------------------------
-//
+
 //go:embed assets/logo.ico
 var iconData []byte
 
-// http server so we can shut it down from onExit.
+// -----------------------------------------------------------------------------
+// Embed static assets under client/static; ** must recurse all sub-paths.
+// -----------------------------------------------------------------------------
+
+//go:embed client/static/**
+var embeddedStatic embed.FS
+
+// staticFS is the embedded filesystem rooted at client/static/.
+var staticFS fs.FS
+
+// -----------------------------------------------------------------------------
+// http server so we can shut it down cleanly from onExit.
+// -----------------------------------------------------------------------------
 var srv *http.Server
 
 // -----------------------------------------------------------------------------
 // Utility – run from the folder that contains the executable so the templates
-//
-//	and static files are found even when launched from elsewhere.
-//
+// and static files are found even when launched from elsewhere (during dev
+// this still helps, but isn’t strictly required for embedded files).
 // -----------------------------------------------------------------------------
 func init() {
 	if exe, err := os.Executable(); err == nil {
 		_ = os.Chdir(filepath.Dir(exe))
 	}
+
+	// Carve out the client/static subtree of the embedded FS so that
+	// “/static/foo.js” maps directly to “foo.js”.
+	var err error
+	staticFS, err = fs.Sub(embeddedStatic, "client/static")
+	if err != nil {
+		panic("shrike: fs.Sub failed: " + err.Error())
+	}
 }
 
 // -----------------------------------------------------------------------------
-// Web‑handler helpers (unchanged from your original file)
+// Web-handler helpers
 // -----------------------------------------------------------------------------
 
 type ListTemplateData struct{ Jobs []jobqueue.Job }
-
 type DetailTemplateData struct{ Job *jobqueue.Job }
 
 type Command struct {
@@ -211,7 +230,7 @@ func ParseCommand(input string) []string {
 }
 
 // -----------------------------------------------------------------------------
-// main – start server then hand control to the system‑tray UI.
+// main – start server then hand control to the system-tray UI.
 // -----------------------------------------------------------------------------
 
 func main() {
@@ -228,7 +247,10 @@ func main() {
 	mux.HandleFunc("/job/{id}/remove", renderer.ApplyMiddlewares(removeHandler(queue)))
 	mux.HandleFunc("/stream", stream.StreamHandler)
 	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(queue)))
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("client/static"))))
+
+	// Serve embedded static files
+	mux.Handle("/static/",
+		http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	srv = &http.Server{
 		Addr:    ":8090",
