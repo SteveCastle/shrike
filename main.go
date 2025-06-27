@@ -289,6 +289,27 @@ func removeHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+func clearNonRunningJobsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		clearedCount, err := deps.Queue.ClearNonRunningJobs()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"cleared_count": clearedCount,
+			"message":       fmt.Sprintf("Cleared %d non-running jobs", clearedCount),
+		})
+	}
+}
+
 func readJSONBody(r *http.Request, v any) error {
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(v)
@@ -478,6 +499,7 @@ func main() {
 	mux.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(deps)))
 	mux.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(deps)))
 	mux.HandleFunc("/job/{id}/remove", renderer.ApplyMiddlewares(removeHandler(deps)))
+	mux.HandleFunc("/jobs/clear", renderer.ApplyMiddlewares(clearNonRunningJobsHandler(deps)))
 	mux.HandleFunc("/stream", stream.StreamHandler)
 	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(deps)))
 	mux.HandleFunc("/media", renderer.ApplyMiddlewares(mediaHandler(deps)))

@@ -135,8 +135,38 @@
           autofocus
         />
       </form>
+
       <!-- A list where we will append incoming messages -->
       <div class="jobs-table">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+          "
+        >
+          <h2 style="margin: 0; color: #d4d4d4; font-size: 1.2em">Jobs</h2>
+          <button
+            id="clearNonRunningBtn"
+            onClick="clearNonRunningJobs()"
+            style="
+              background: transparent;
+              border: 1px solid #666;
+              color: #d4d4d4;
+              font-family: inherit;
+              font-size: 0.85em;
+              padding: 0.4em 0.8em;
+              cursor: pointer;
+              border-radius: 3px;
+              transition: all 0.2s ease;
+            "
+            onmouseover="this.style.borderColor='#999'; this.style.color='#fff'"
+            onmouseout="this.style.borderColor='#666'; this.style.color='#d4d4d4'"
+          >
+            Clear All
+          </button>
+        </div>
         <div class="jobs-header">
           <div class="jobs-cell">State</div>
           <div class="jobs-cell">Command</div>
@@ -281,6 +311,38 @@
             console.log("Server responded:", result);
           })
           .catch((err) => console.error("Error:", err));
+      }
+
+      function clearNonRunningJobs() {
+        if (
+          !confirm(
+            "Are you sure you want to clear all non-running jobs? This action cannot be undone."
+          )
+        ) {
+          return;
+        }
+
+        const button = document.getElementById("clearNonRunningBtn");
+        button.disabled = true;
+        button.textContent = "Clearing...";
+
+        fetch("/jobs/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+          .then((response) => response.json())
+          .then((result) => {
+            console.log("Server responded:", result);
+            alert(result.message || `Cleared ${result.cleared_count} jobs`);
+          })
+          .catch((err) => {
+            console.error("Error:", err);
+            alert("Error clearing jobs. Please try again.");
+          })
+          .finally(() => {
+            button.disabled = false;
+            button.textContent = "Clear Non-Running Jobs";
+          });
       }
 
       function htmlToNode(html) {

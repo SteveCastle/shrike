@@ -361,6 +361,47 @@ func (q *Queue) RemoveJob(id string) error {
 	return nil
 }
 
+// ClearNonRunningJobs removes all jobs that are not currently running (StateInProgress).
+// This includes jobs in states: Pending, Completed, Cancelled, and Error.
+// Returns the number of jobs cleared and any error that occurred.
+func (q *Queue) ClearNonRunningJobs() (int, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	var clearedCount int
+	var jobsToRemove []string
+
+	// Collect IDs of jobs to remove (not currently running)
+	for _, jobID := range q.JobOrder {
+		job := q.Jobs[jobID]
+		if job.State != StateInProgress {
+			jobsToRemove = append(jobsToRemove, jobID)
+		}
+	}
+
+	// Remove the jobs
+	for _, jobID := range jobsToRemove {
+		delete(q.Jobs, jobID)
+
+		// Remove from job order
+		for i, id := range q.JobOrder {
+			if id == jobID {
+				q.JobOrder = append(q.JobOrder[:i], q.JobOrder[i+1:]...)
+				break
+			}
+		}
+
+		// Broadcast the delete event
+		err := serializeListUpdate("delete", &Job{ID: jobID})
+		if err != nil {
+			return clearedCount, err
+		}
+		clearedCount++
+	}
+
+	return clearedCount, nil
+}
+
 type SerializedJob struct {
 	UpdateType string `json:"updateType"`
 	Job        Job    `json:"job"`
