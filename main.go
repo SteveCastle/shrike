@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/pkg/browser"
+	_ "modernc.org/sqlite"
 
 	"github.com/stevecastle/shrike/jobqueue"
 	"github.com/stevecastle/shrike/renderer"
@@ -47,9 +49,17 @@ var staticFS fs.FS
 var srv *http.Server
 
 // -----------------------------------------------------------------------------
+// Dependencies struct to hold shared dependencies
+// -----------------------------------------------------------------------------
+type Dependencies struct {
+	Queue *jobqueue.Queue
+	DB    *sql.DB
+}
+
+// -----------------------------------------------------------------------------
 // Utility – run from the folder that contains the executable so the templates
 // and static files are found even when launched from elsewhere (during dev
-// this still helps, but isn’t strictly required for embedded files).
+// this still helps, but isn't strictly required for embedded files).
 // -----------------------------------------------------------------------------
 func init() {
 	if exe, err := os.Executable(); err == nil {
@@ -57,12 +67,37 @@ func init() {
 	}
 
 	// Carve out the client/static subtree of the embedded FS so that
-	// “/static/foo.js” maps directly to “foo.js”.
+	// "/static/foo.js" maps directly to "foo.js".
 	var err error
 	staticFS, err = fs.Sub(embeddedStatic, "client/static")
 	if err != nil {
 		panic("shrike: fs.Sub failed: " + err.Error())
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Database initialization
+// -----------------------------------------------------------------------------
+func initDB() (*sql.DB, error) {
+	dbPath := `C:\Users\steph\AppData\Roaming\Lowkey Media Viewer\dream-x.sqlite`
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Test the connection
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+
+	log.Printf("Connected to SQLite database at: %s", dbPath)
+	return db, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -77,7 +112,7 @@ type Command struct {
 	Arguments []string
 }
 
-func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func homeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// POST = legacy JSON workflow launch
 		if r.Method == http.MethodPost {
@@ -91,21 +126,21 @@ func homeHandler(queue *jobqueue.Queue) http.HandlerFunc {
 				Arguments: c.Arguments[:len(c.Arguments)-1],
 				Input:     c.Arguments[len(c.Arguments)-1],
 			}
-			queue.AddWorkflow(workflow)
+			deps.Queue.AddWorkflow(workflow)
 		}
 
 		// GET – render job list
-		data := ListTemplateData{Jobs: queue.GetJobs()}
+		data := ListTemplateData{Jobs: deps.Queue.GetJobs()}
 		if err := renderer.Templates().ExecuteTemplate(w, "home", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
 }
 
-func detailHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func detailHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		job := queue.GetJob(id)
+		job := deps.Queue.GetJob(id)
 		if job == nil {
 			http.NotFound(w, r)
 			return
@@ -121,7 +156,7 @@ type CreateJobHandlerRequest struct {
 	Input string `json:"input"`
 }
 
-func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func createJobHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
@@ -148,7 +183,7 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 			args = nil
 		}
 
-		id, err := queue.AddWorkflow(jobqueue.Workflow{
+		id, err := deps.Queue.AddWorkflow(jobqueue.Workflow{
 			Command:   cmd,
 			Arguments: args,
 			Input:     input,
@@ -164,33 +199,33 @@ func createJobHandler(queue *jobqueue.Queue) http.HandlerFunc {
 	}
 }
 
-func cancelHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func cancelHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		queue.CancelJob(r.PathValue("id"))
+		deps.Queue.CancelJob(r.PathValue("id"))
 	}
 }
 
-func copyHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func copyHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		queue.CopyJob(r.PathValue("id"))
+		deps.Queue.CopyJob(r.PathValue("id"))
 	}
 }
 
-func removeHandler(queue *jobqueue.Queue) http.HandlerFunc {
+func removeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := queue.RemoveJob(r.PathValue("id")); err != nil {
+		if err := deps.Queue.RemoveJob(r.PathValue("id")); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -234,19 +269,32 @@ func ParseCommand(input string) []string {
 // -----------------------------------------------------------------------------
 
 func main() {
+	// ––– initialize database –––
+	db, err := initDB()
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
 	// ––– job queue and runners –––
 	queue := jobqueue.NewQueue()
 	runners.New(queue, 2)
 
+	// ––– create dependencies struct –––
+	deps := &Dependencies{
+		Queue: queue,
+		DB:    db,
+	}
+
 	// ––– routes –––
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(queue)))
-	mux.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(queue)))
-	mux.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(queue)))
-	mux.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(queue)))
-	mux.HandleFunc("/job/{id}/remove", renderer.ApplyMiddlewares(removeHandler(queue)))
+	mux.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(deps)))
+	mux.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(deps)))
+	mux.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(deps)))
+	mux.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(deps)))
+	mux.HandleFunc("/job/{id}/remove", renderer.ApplyMiddlewares(removeHandler(deps)))
 	mux.HandleFunc("/stream", stream.StreamHandler)
-	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(queue)))
+	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",
