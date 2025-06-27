@@ -30,7 +30,7 @@ func init() {
 	// Register a task that waits 5 seconds then completes
 	RegisterTask("wait", "Wait", waitFn)
 	RegisterTask("gallery-dl", "gallery-dl", executeCommand)
-	RegisterTask("dce/dce", "dce/dce", executeCommand)
+	RegisterTask("dce", "dce", executeCommand)
 	RegisterTask("yt-dlp", "yt-dlp", executeCommand)
 	RegisterTask("ffmpeg", "ffmpeg", executeCommand)
 }
@@ -49,12 +49,43 @@ func GetTasks() TaskMap {
 }
 
 func normalizeArg(a string) string {
-	// Heuristic: if it contains a path separator or a "." near the end,
-	// treat it as a path.  Tweak as needed for your domain.
-	if !strings.ContainsAny(a, `/\`) && !strings.Contains(a, ".") {
-		return a // plain argument (flag, keyword, etc.)
+	// More conservative heuristic for path detection
+	// Only treat as a path if it has clear path indicators
+
+	// If it contains path separators, it's likely a path
+	if strings.ContainsAny(a, `/\`) {
+		return normalizePath(a)
 	}
 
+	// If it starts with common path indicators, treat as path
+	if strings.HasPrefix(a, ".") || strings.HasPrefix(a, "~") {
+		return normalizePath(a)
+	}
+
+	// Windows drive letter patterns (C:, D:\, etc.)
+	if len(a) >= 2 && a[1] == ':' && ((a[0] >= 'A' && a[0] <= 'Z') || (a[0] >= 'a' && a[0] <= 'z')) {
+		return normalizePath(a)
+	}
+
+	// If it has a file extension AND looks like a filename (not a flag or setting)
+	// This catches cases like "video.mp4" but not "--quality=0.95" or "--format=mp4"
+	if strings.Contains(a, ".") && !strings.Contains(a, "=") && !strings.HasPrefix(a, "-") {
+		// Additional check: does it look like a filename with a reasonable extension?
+		ext := filepath.Ext(a)
+		if len(ext) >= 2 && len(ext) <= 5 { // reasonable extension length (.mp4, .jpeg, etc.)
+			// Check if base name isn't empty and doesn't look like a domain/version
+			base := strings.TrimSuffix(a, ext)
+			if base != "" && !strings.Contains(base, ".") {
+				return normalizePath(a)
+			}
+		}
+	}
+
+	// For everything else (flags, options, domains, version numbers, etc.), return as-is
+	return a
+}
+
+func normalizePath(a string) string {
 	clean := filepath.Clean(a)
 
 	// Convert to absolute when possible (fail-safe if $PWD disappears).
@@ -63,7 +94,7 @@ func normalizeArg(a string) string {
 	}
 
 	// Use platform-native separators so the invoked program sees the
-	// right thing whether it’s on Windows or POSIX.
+	// right thing whether it's on Windows or POSIX.
 	return filepath.FromSlash(clean)
 }
 

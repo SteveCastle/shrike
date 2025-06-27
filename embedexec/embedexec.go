@@ -128,12 +128,26 @@ func extractTree(name string) (string, func(), error) {
 }
 
 // GetExec extracts (single file or whole dir) then builds an *exec.Cmd.
+// If the embedded executable is not found, it falls back to using the system PATH.
 func GetExec(ctx context.Context, base string, args ...string) (*exec.Cmd, func(), error) {
+	// First try to extract the embedded executable
 	exePath, cleanup, err := Extract(base + ".exe")
 	if err != nil {
-		return nil, nil, err
+		// If extraction fails, try to find the executable in the system PATH
+		// Remove the .exe suffix for the system lookup since exec.LookPath handles it
+		systemPath, lookupErr := exec.LookPath(base)
+		if lookupErr != nil {
+			// If both embedded and system lookup fail, return the original error
+			return nil, nil, fmt.Errorf("executable %q not found in embedded files or system PATH: embedded error: %w, system error: %v", base, err, lookupErr)
+		}
+
+		// Use the system executable
+		cmd := exec.CommandContext(ctx, systemPath, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // hide console
+		return cmd, nil, nil                                     // no cleanup needed for system executables
 	}
 
+	// Use the extracted embedded executable
 	cmd := exec.CommandContext(ctx, exePath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // hide console
 	return cmd, cleanup, nil

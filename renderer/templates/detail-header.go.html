@@ -11,9 +11,19 @@
     {{end}}
   </div>
   <div class="meta-info">
-    <div>
-      <strong>Command:</strong> {{.Command}} {{range .Arguments}}{{.}} {{end}}
-      {{.Input}}
+    <div class="status-section">
+      <strong>Status:</strong>
+      <span class="job-status {{.State}}"></span>
+      <span id="state" class="status-text {{.State}}">{{.State}}</span>
+    </div>
+    <div class="command-section">
+      <strong>Command:</strong>
+      <span class="command-name">{{.Command}}</span>
+      {{if .Arguments}}
+      <span class="command-args">{{range .Arguments}}{{.}} {{end}}</span>
+      {{end}} {{if .Input}}
+      <span class="command-input">{{.Input}}</span>
+      {{end}}
     </div>
     {{- if .CreatedAt.IsZero | not}}
     <div><strong>Created At:</strong> {{formatTime .CreatedAt}}</div>
@@ -27,9 +37,7 @@
       <strong>Errored At:</strong>
       <span id="erroredAt">{{formatTime .ErroredAt}}</span>
     </div>
-    {{- end}}
-    <div><strong>State:</strong> <span id="state">{{.State}}</span></div>
-    {{- if .Dependencies}}
+    {{- end}} {{- if .Dependencies}}
     <div>
       <strong>Dependencies:</strong> {{range .Dependencies}}{{.}} {{end}}
     </div>

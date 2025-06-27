@@ -1,11 +1,17 @@
 {{ define "jobRow" }}
-<div class="row" id="{{ .ID }}">
-  <div class="table-cell"><span class="job-status {{.State}}"></div>
-  <div class="table-cell"><a href="/job/{{.ID}}">{{ .Command }}</a></div>
-  <div class="table-cell">{{ .Arguments }}</div>
-  <div class="table-cell">{{ .Input }}</div>
-  <div class="table-cell">{{ formatTime .CreatedAt }}</div>
-  <div class="table-cell">
+<div class="jobs-row" id="{{ .ID }}">
+  <div class="jobs-cell state" data-label="State">
+    <span class="job-status {{.State}}"></span>
+  </div>
+  <div class="jobs-cell command" data-label="Command">
+    <a href="/job/{{.ID}}">{{ .Command }}</a>
+  </div>
+  <div class="jobs-cell arguments" data-label="Arguments">{{ .Arguments }}</div>
+  <div class="jobs-cell input" data-label="Input">{{ .Input }}</div>
+  <div class="jobs-cell created" data-label="CreatedAt">
+    {{ formatTime .CreatedAt }}
+  </div>
+  <div class="jobs-cell actions" data-label="Actions">
     {{ if or (eq .State 0) (eq .State 1) }}
     <button
       data-id="{{ .ID }}"
@@ -15,11 +21,7 @@
       Cancel
     </button>
     {{ else }}
-    <button
-      data-id="{{ .ID }}"
-      class="cancel-button"
-      onClick="restart(event)"
-    >
+    <button data-id="{{ .ID }}" class="cancel-button" onClick="restart(event)">
       Restart
     </button>
     <button
@@ -27,8 +29,8 @@
       class="remove-button"
       onClick="removeJob(event)"
     >
-    Remove
-  </button>
+      Remove
+    </button>
     {{ end }}
   </div>
 </div>

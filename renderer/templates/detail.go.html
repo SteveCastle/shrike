@@ -5,18 +5,271 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Job {{.Job.ID}}</title>
-    <link rel="stylesheet" href="/static/details.css" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family: monospace;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+      }
+
+      .detail-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      header {
+        background: #333;
+        padding: 1em;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .breadcrumbs {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        margin-bottom: 1em;
+        min-height: 18px;
+      }
+
+      .breadcrumb-path {
+        text-decoration: none;
+        color: #61dafb;
+        opacity: 0.8;
+        transition: opacity 0.2s ease;
+      }
+
+      .breadcrumb-path:hover {
+        opacity: 1;
+      }
+
+      .breadcrumb-seperator {
+        color: #666;
+        display: inline-block;
+      }
+
+      .breadcrumb-leaf {
+        color: #cfcfcf;
+        font-weight: bold;
+      }
+
+      .meta-info {
+        margin-top: 0.5em;
+        font-size: 0.9em;
+        color: #d4d4d4;
+      }
+
+      .meta-info div {
+        margin-bottom: 0.5em;
+      }
+
+      .meta-info strong {
+        color: #ffffff;
+      }
+
+      .terminal {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 4px;
+        height: 60vh;
+        overflow-y: auto;
+        margin-bottom: 20px;
+      }
+
+      .terminal-content {
+        padding: 1em;
+      }
+
+      .terminal-line {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        line-height: 1.4em;
+        color: #d4d4d4;
+        font-family: monospace;
+      }
+
+      button {
+        background: none;
+        border: 1px solid #61dafb;
+        color: #61dafb;
+        font-family: inherit;
+        font-size: 0.9em;
+        padding: 0.3em 0.8em;
+        cursor: pointer;
+        border-radius: 3px;
+        transition: all 0.2s ease;
+        margin-left: 1em;
+      }
+
+      button:hover {
+        background: #61dafb;
+        color: #1e1e1e;
+      }
+
+      button:active {
+        background: #4fa8c5;
+        border-color: #4fa8c5;
+      }
+
+      /* Scrollbar styling */
+      .terminal::-webkit-scrollbar {
+        width: 8px;
+      }
+      .terminal::-webkit-scrollbar-track {
+        background: #2a2a2a;
+      }
+      .terminal::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 4px;
+      }
+      .terminal::-webkit-scrollbar-thumb:hover {
+        background: #777;
+      }
+
+      /* Status styling */
+      .status-section {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        margin-bottom: 0.8em;
+      }
+
+      /* Base styles for the job status circle */
+      .job-status {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-left: 0.5em;
+      }
+
+      /* Status colors - matching the list view */
+      .job-status.pending {
+        background-color: #f1c40f;
+      }
+
+      .job-status.in-progress {
+        background-color: transparent;
+        border: 2px solid #3498db;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: rotate 1.5s linear infinite;
+      }
+
+      .job-status.completed {
+        background-color: #2ecc71;
+      }
+
+      .job-status.cancelled {
+        background-color: #f39c12;
+      }
+
+      .job-status.error {
+        background-color: #e74c3c;
+      }
+
+      .status-text {
+        font-weight: bold;
+        padding: 0.2em 0.5em;
+        border-radius: 3px;
+        font-size: 0.9em;
+      }
+
+      .status-text.pending {
+        color: #f1c40f;
+        background-color: rgba(241, 196, 15, 0.1);
+      }
+
+      .status-text.in-progress {
+        color: #3498db;
+        background-color: rgba(52, 152, 219, 0.1);
+      }
+
+      .status-text.completed {
+        color: #2ecc71;
+        background-color: rgba(46, 204, 113, 0.1);
+      }
+
+      .status-text.cancelled {
+        color: #f39c12;
+        background-color: rgba(243, 156, 18, 0.1);
+      }
+
+      .status-text.error {
+        color: #e74c3c;
+        background-color: rgba(231, 76, 60, 0.1);
+      }
+
+      /* Command styling */
+      .command-section {
+        margin-bottom: 0.8em;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.3em;
+      }
+
+      .command-name {
+        color: #61dafb;
+        font-family: monospace;
+        font-weight: bold;
+      }
+
+      .command-args {
+        color: #98c379;
+        font-family: monospace;
+      }
+
+      .command-input {
+        color: #e5c07b;
+        font-family: monospace;
+        font-weight: bold;
+        background-color: rgba(229, 192, 123, 0.1);
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+        border: 1px solid rgba(229, 192, 123, 0.3);
+      }
+
+      /* Rotate animation for In Progress */
+      @keyframes rotate {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    {{template "detailHeader" .Job}}
-    <div class="terminal">
-      <div class="terminal-content">
-        {{range $index, $line := .Job.Stdout }}
-        <div class="terminal-line">{{$line}}</div>
-        {{end}}
+    <div class="detail-container">
+      <h1>Shrike Job Manager</h1>
+      <nav
+        style="
+          margin: 10px 0;
+          padding: 10px;
+          background-color: #333;
+          border-radius: 4px;
+        "
+      >
+        <a href="/" style="margin-right: 20px; color: #61dafb">Jobs</a>
+        <a href="/media" style="color: #61dafb">Media Browser</a>
+      </nav>
+
+      {{template "detailHeader" .Job}}
+
+      <div class="terminal">
+        <div class="terminal-content">
+          {{range $index, $line := .Job.Stdout }}
+          <div class="terminal-line">{{$line}}</div>
+          {{end}}
+        </div>
       </div>
     </div>
-    <footer></footer>
 
     <script>
       // EVENT SOURCE CONNECTION
