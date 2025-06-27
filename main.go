@@ -23,6 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/stevecastle/shrike/jobqueue"
+	"github.com/stevecastle/shrike/media"
 	"github.com/stevecastle/shrike/renderer"
 	"github.com/stevecastle/shrike/runners"
 	"github.com/stevecastle/shrike/stream"
@@ -112,62 +113,6 @@ type DetailTemplateData struct{ Job *jobqueue.Job }
 type Command struct {
 	Command   string
 	Arguments []string
-}
-
-// MediaItem represents a row from the media table
-type MediaItem struct {
-	Path          string         `json:"path"`
-	Description   sql.NullString `json:"description"`
-	Size          sql.NullInt64  `json:"size"`
-	Hash          sql.NullString `json:"hash"`
-	FormattedSize string         `json:"-"`
-}
-
-// MarshalJSON implements custom JSON marshaling for MediaItem
-func (m MediaItem) MarshalJSON() ([]byte, error) {
-	type Alias MediaItem
-	return json.Marshal(&struct {
-		*Alias
-		Description *string `json:"description"`
-		Size        *int64  `json:"size"`
-		Hash        *string `json:"hash"`
-	}{
-		Alias: (*Alias)(&m),
-		Description: func() *string {
-			if m.Description.Valid {
-				return &m.Description.String
-			} else {
-				return nil
-			}
-		}(),
-		Size: func() *int64 {
-			if m.Size.Valid {
-				return &m.Size.Int64
-			} else {
-				return nil
-			}
-		}(),
-		Hash: func() *string {
-			if m.Hash.Valid {
-				return &m.Hash.String
-			} else {
-				return nil
-			}
-		}(),
-	})
-}
-
-// MediaTemplateData represents data for the media template
-type MediaTemplateData struct {
-	MediaItems []MediaItem `json:"media_items"`
-	Offset     int         `json:"offset"`
-	HasMore    bool        `json:"has_more"`
-}
-
-// MediaAPIResponse represents the JSON response for the API endpoint
-type MediaAPIResponse struct {
-	Items   []MediaItem `json:"items"`
-	HasMore bool        `json:"has_more"`
 }
 
 func homeHandler(deps *Dependencies) http.HandlerFunc {
@@ -315,79 +260,26 @@ func readJSONBody(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// formatBytes converts bytes to human readable format
-func formatBytes(bytes int64) string {
-	if bytes == 0 {
-		return "0 B"
-	}
-	const unit = 1024
-	sizes := []string{"B", "KB", "MB", "GB", "TB"}
-	i := 0
-	b := float64(bytes)
-	for b >= unit && i < len(sizes)-1 {
-		b /= unit
-		i++
-	}
-	return fmt.Sprintf("%.1f %s", b, sizes[i])
-}
-
-// getMediaItems fetches media items from the database with pagination
-func getMediaItems(db *sql.DB, offset, limit int) ([]MediaItem, bool, error) {
-	query := `
-		SELECT path, description, size, hash 
-		FROM media 
-		ORDER BY path 
-		LIMIT ? OFFSET ?
-	`
-
-	rows, err := db.Query(query, limit+1, offset) // Query one extra to check if there are more
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-
-	var items []MediaItem
-	for rows.Next() {
-		var item MediaItem
-		err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash)
-		if err != nil {
-			return nil, false, err
-		}
-
-		// Handle nullable size field
-		if item.Size.Valid {
-			item.FormattedSize = formatBytes(item.Size.Int64)
-		} else {
-			item.FormattedSize = "Unknown"
-		}
-
-		items = append(items, item)
-	}
-
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit] // Remove the extra item
-	}
-
-	return items, hasMore, nil
-}
-
 // mediaHandler serves the main media browsing page
 func mediaHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const initialLimit = 25
 
-		items, hasMore, err := getMediaItems(deps.DB, 0, initialLimit)
+		// Get search query from URL parameter
+		searchQuery := r.URL.Query().Get("q")
+
+		items, hasMore, err := media.GetItems(deps.DB, 0, initialLimit, searchQuery)
 		if err != nil {
 			log.Printf("Error fetching media items: %v", err)
 			http.Error(w, "Error fetching media items", http.StatusInternalServerError)
 			return
 		}
 
-		data := MediaTemplateData{
-			MediaItems: items,
-			Offset:     len(items),
-			HasMore:    hasMore,
+		data := media.TemplateData{
+			MediaItems:  items,
+			Offset:      len(items),
+			HasMore:     hasMore,
+			SearchQuery: searchQuery,
 		}
 
 		if err := renderer.Templates().ExecuteTemplate(w, "media", data); err != nil {
@@ -407,6 +299,7 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 		// Parse query parameters
 		offsetStr := r.URL.Query().Get("offset")
 		limitStr := r.URL.Query().Get("limit")
+		searchQuery := r.URL.Query().Get("q")
 
 		offset := 0
 		limit := 25
@@ -423,14 +316,14 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
-		items, hasMore, err := getMediaItems(deps.DB, offset, limit)
+		items, hasMore, err := media.GetItems(deps.DB, offset, limit, searchQuery)
 		if err != nil {
 			log.Printf("Error fetching media items: %v", err)
 			http.Error(w, "Error fetching media items", http.StatusInternalServerError)
 			return
 		}
 
-		response := MediaAPIResponse{
+		response := media.APIResponse{
 			Items:   items,
 			HasMore: hasMore,
 		}

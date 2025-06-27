@@ -24,9 +24,11 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 3fr 2fr 100px 2fr;
+        grid-template-columns: 3fr 2fr 100px 1.5fr 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
+        align-items: start;
+        min-height: 40px;
       }
 
       .media-header {
@@ -73,6 +75,42 @@
         font-family: monospace;
         color: #e06c75;
         font-size: 0.9em;
+        word-break: break-all;
+      }
+
+      .media-cell.tags {
+        color: #c678dd;
+        font-size: 0.85em;
+        line-height: 1.2;
+        white-space: normal;
+        word-break: break-word;
+        align-items: flex-start;
+        overflow: visible;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        max-width: 200px;
+        min-width: 150px;
+        display: flex;
+        flex-wrap: wrap;
+      }
+
+      .tag-item {
+        display: inline-block;
+        background-color: #444;
+        color: #fff;
+        padding: 1px 4px;
+        margin: 1px 1px;
+        border-radius: 3px;
+        font-size: 0.75em;
+        white-space: nowrap;
+        vertical-align: top;
+        line-height: 1.3;
+      }
+
+      .tag-category {
+        background-color: #666;
+        color: #ccc;
+        font-weight: bold;
       }
 
       .loading {
@@ -112,6 +150,17 @@
         .media-header {
           display: none;
         }
+
+        .media-cell.tags {
+          max-width: none;
+          min-width: auto;
+        }
+
+        .tag-item {
+          margin: 1px 1px;
+          font-size: 0.75em;
+          padding: 1px 3px;
+        }
       }
     </style>
   </head>
@@ -129,12 +178,88 @@
         <a href="/" style="margin-right: 20px; color: #61dafb">Jobs</a>
         <a href="/media" style="color: #61dafb">Media Browser</a>
       </nav>
+
+      <div
+        style="
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #2d2d2d;
+          border-radius: 4px;
+        "
+      >
+        <form
+          id="search-form"
+          style="display: flex; gap: 10px; align-items: center"
+        >
+          <input
+            type="text"
+            id="search-input"
+            placeholder='Search query (e.g., tag:"landscape" AND size:>1000000)'
+            value="{{.SearchQuery}}"
+            style="
+              flex: 1;
+              padding: 8px 12px;
+              background-color: #1e1e1e;
+              border: 1px solid #555;
+              color: #d4d4d4;
+              border-radius: 4px;
+              font-family: monospace;
+            "
+          />
+          <button
+            type="submit"
+            style="
+              padding: 8px 16px;
+              background-color: #61dafb;
+              color: #000;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+              font-weight: bold;
+            "
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            id="clear-search"
+            style="
+              padding: 8px 16px;
+              background-color: #666;
+              color: #fff;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+            "
+          >
+            Clear
+          </button>
+        </form>
+
+        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa">
+          <strong>Search Examples:</strong><br />
+          • <code>path:"*.mp4"</code> - Files with .mp4 extension<br />
+          • <code>size:>1000000</code> - Files larger than 1MB<br />
+          • <code>description:"cat" AND size:<5000000</code> - Cat descriptions
+          under 5MB<br />
+          • <code>tag:"landscape"</code> - Media tagged as landscape<br />
+          • <code>category:"nature" AND tag:"sunset"</code> - Nature category
+          with sunset tag<br />
+          • <code>NOT tag:"portrait"</code> - Media without portrait tag<br />
+          • <code>tag:"*flower*" OR category:"garden"</code> - Flower tags or
+          garden category<br />
+          • <code>NOT hash:""</code> - Files with hash values<br />
+          • <code>path:"*video*" OR path:"*movie*"</code> - Paths containing
+          "video" or "movie"
+        </div>
+      </div>
       <div class="media-table">
         <div class="media-header">
           <div class="media-cell">Path</div>
           <div class="media-cell">Description</div>
           <div class="media-cell">Size</div>
           <div class="media-cell">Hash</div>
+          <div class="media-cell">Tags</div>
         </div>
         <div id="media-list" class="table-body">
           {{range .MediaItems}}
@@ -148,6 +273,13 @@
             </div>
             <div class="media-cell hash" data-label="Hash">
               {{if .Hash.Valid}}{{.Hash.String}}{{else}}-{{end}}
+            </div>
+            <div class="media-cell tags" data-label="Tags">
+              {{if .Tags}} {{range .Tags}}
+              <span class="tag-item">
+                <span class="tag-category">{{.Category}}</span>:{{.Label}}
+              </span>
+              {{end}} {{else}} - {{end}}
             </div>
           </div>
           {{end}}
@@ -165,6 +297,7 @@
       let currentOffset = {{.Offset}};
       let isLoading = false;
       let hasMoreItems = {{.HasMore}};
+      let currentSearchQuery = "{{.SearchQuery}}";
 
       function formatBytes(bytes) {
         if (bytes === 0) return '0 B';
@@ -180,7 +313,16 @@
         isLoading = true;
         document.getElementById('loading').style.display = 'block';
 
-        fetch(`/media/api?offset=${currentOffset}&limit=25`)
+        const queryParams = new URLSearchParams({
+          offset: currentOffset,
+          limit: 25
+        });
+
+        if (currentSearchQuery) {
+          queryParams.set('q', currentSearchQuery);
+        }
+
+        fetch(`/media/api?${queryParams}`)
           .then(response => response.json())
           .then(data => {
             const mediaList = document.getElementById('media-list');
@@ -188,11 +330,21 @@
             data.items.forEach(item => {
               const row = document.createElement('div');
               row.className = 'media-row';
+
+              // Build tags HTML
+              let tagsHtml = '-';
+              if (item.tags && item.tags.length > 0) {
+                tagsHtml = item.tags.map(tag =>
+                  `<span class="tag-item"><span class="tag-category">${escapeHtml(tag.category)}</span>:${escapeHtml(tag.label)}</span>`
+                ).join('');
+              }
+
               row.innerHTML = `
                 <div class="media-cell path" data-label="Path">${escapeHtml(item.path)}</div>
                 <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '')}</div>
                 <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
                 <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '')}</div>
+                <div class="media-cell tags" data-label="Tags">${tagsHtml}</div>
               `;
               mediaList.appendChild(row);
             });
@@ -218,6 +370,29 @@
         div.textContent = text;
         return div.innerHTML;
       }
+
+      function performSearch(query) {
+        const queryParams = new URLSearchParams();
+        if (query) {
+          queryParams.set('q', query);
+        }
+
+        // Redirect to reload the page with the new search
+        window.location.href = `/media?${queryParams}`;
+      }
+
+      // Search form handling
+      document.getElementById('search-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const query = document.getElementById('search-input').value.trim();
+        performSearch(query);
+      });
+
+      // Clear search button
+      document.getElementById('clear-search').addEventListener('click', function() {
+        document.getElementById('search-input').value = '';
+        performSearch('');
+      });
 
       // Infinite scroll implementation
       function checkScroll() {
