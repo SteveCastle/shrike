@@ -3,10 +3,12 @@ package jobqueue
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"time"
 
@@ -83,6 +85,7 @@ type Queue struct {
 	Jobs     map[string]*Job
 	JobOrder []string // Keep track of the order in which jobs are added
 	Signal   chan string
+	db       *sql.DB // Database connection for persistence
 }
 
 // NewQueue initializes and returns a new Queue.
@@ -91,6 +94,210 @@ func NewQueue() *Queue {
 		Jobs:   make(map[string]*Job),
 		Signal: make(chan string, 100),
 	}
+}
+
+// NewQueueWithDB initializes and returns a new Queue with database support.
+func NewQueueWithDB(db *sql.DB) *Queue {
+	q := &Queue{
+		Jobs:   make(map[string]*Job),
+		Signal: make(chan string, 100),
+		db:     db,
+	}
+
+	// Create the jobs table if it doesn't exist
+	if err := q.createJobsTable(); err != nil {
+		log.Printf("Failed to create jobs table: %v", err)
+	}
+
+	// Load existing jobs from database
+	if err := q.loadJobsFromDB(); err != nil {
+		log.Printf("Failed to load jobs from database: %v", err)
+	}
+
+	return q
+}
+
+// createJobsTable creates the jobs table if it doesn't exist
+func (q *Queue) createJobsTable() error {
+	query := `
+	CREATE TABLE IF NOT EXISTS jobs (
+		id TEXT PRIMARY KEY,
+		command TEXT NOT NULL,
+		arguments TEXT, -- JSON array
+		input TEXT,
+		stdout TEXT, -- JSON array
+		dependencies TEXT, -- JSON array
+		state INTEGER NOT NULL,
+		created_at DATETIME NOT NULL,
+		claimed_at DATETIME,
+		completed_at DATETIME,
+		errored_at DATETIME,
+		job_order_position INTEGER
+	)`
+
+	_, err := q.db.Exec(query)
+	return err
+}
+
+// saveJobToDB saves a single job to the database
+func (q *Queue) saveJobToDB(job *Job) error {
+	if q.db == nil {
+		return nil // No database connection
+	}
+
+	// Serialize arrays to JSON
+	argumentsJSON, _ := json.Marshal(job.Arguments)
+	stdoutJSON, _ := json.Marshal(job.Stdout)
+	dependenciesJSON, _ := json.Marshal(job.Dependencies)
+
+	// Find position in job order
+	position := -1
+	for i, id := range q.JobOrder {
+		if id == job.ID {
+			position = i
+			break
+		}
+	}
+
+	query := `
+	INSERT OR REPLACE INTO jobs (
+		id, command, arguments, input, stdout, dependencies, state,
+		created_at, claimed_at, completed_at, errored_at, job_order_position
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := q.db.Exec(query,
+		job.ID,
+		job.Command,
+		string(argumentsJSON),
+		job.Input,
+		string(stdoutJSON),
+		string(dependenciesJSON),
+		int(job.State),
+		job.CreatedAt,
+		job.ClaimedAt,
+		job.CompletedAt,
+		job.ErroredAt,
+		position,
+	)
+
+	return err
+}
+
+// loadJobsFromDB loads all jobs from the database
+func (q *Queue) loadJobsFromDB() error {
+	if q.db == nil {
+		return nil // No database connection
+	}
+
+	query := `
+	SELECT id, command, arguments, input, stdout, dependencies, state,
+		   created_at, claimed_at, completed_at, errored_at, job_order_position
+	FROM jobs
+	ORDER BY job_order_position`
+
+	rows, err := q.db.Query(query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var resumedJobs []string
+
+	for rows.Next() {
+		var job Job
+		var argumentsJSON, stdoutJSON, dependenciesJSON string
+		var state int
+		var position int
+
+		err := rows.Scan(
+			&job.ID,
+			&job.Command,
+			&argumentsJSON,
+			&job.Input,
+			&stdoutJSON,
+			&dependenciesJSON,
+			&state,
+			&job.CreatedAt,
+			&job.ClaimedAt,
+			&job.CompletedAt,
+			&job.ErroredAt,
+			&position,
+		)
+		if err != nil {
+			log.Printf("Error scanning job row: %v", err)
+			continue
+		}
+
+		// Deserialize JSON arrays
+		if err := json.Unmarshal([]byte(argumentsJSON), &job.Arguments); err != nil {
+			job.Arguments = []string{}
+		}
+		if err := json.Unmarshal([]byte(stdoutJSON), &job.Stdout); err != nil {
+			job.Stdout = []string{}
+		}
+		if err := json.Unmarshal([]byte(dependenciesJSON), &job.Dependencies); err != nil {
+			job.Dependencies = []string{}
+		}
+
+		job.State = JobState(state)
+
+		// If job was in progress, reset it to pending so it can be resumed
+		if job.State == StateInProgress {
+			job.State = StatePending
+			job.ClaimedAt = time.Time{} // Reset claimed time
+			resumedJobs = append(resumedJobs, job.ID)
+		}
+
+		// Recreate context and cancel function
+		ctx, cancel := context.WithCancel(context.Background())
+		job.Ctx = ctx
+		job.Cancel = cancel
+
+		q.Jobs[job.ID] = &job
+		q.JobOrder = append(q.JobOrder, job.ID)
+	}
+
+	if len(resumedJobs) > 0 {
+		log.Printf("Resumed %d jobs that were in progress: %v", len(resumedJobs), resumedJobs)
+		// Signal that jobs are available
+		for _, jobID := range resumedJobs {
+			select {
+			case q.Signal <- jobID:
+			default:
+				// Channel full, skip
+			}
+		}
+	}
+
+	return rows.Err()
+}
+
+// removeJobFromDB removes a job from the database
+func (q *Queue) removeJobFromDB(jobID string) error {
+	if q.db == nil {
+		return nil // No database connection
+	}
+
+	_, err := q.db.Exec("DELETE FROM jobs WHERE id = ?", jobID)
+	return err
+}
+
+// SaveAllJobsToDB saves all current jobs to the database
+func (q *Queue) SaveAllJobsToDB() error {
+	if q.db == nil {
+		return nil // No database connection
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for _, job := range q.Jobs {
+		if err := q.saveJobToDB(job); err != nil {
+			log.Printf("Failed to save job %s to database: %v", job.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // AddJob adds a new job to the queue with the given dependencies.
@@ -119,6 +326,11 @@ func (q *Queue) AddJob(command string, arguments []string, input string, depende
 	}
 	q.Jobs[id] = job
 	q.JobOrder = append(q.JobOrder, id)
+
+	// Save to database
+	if err := q.saveJobToDB(job); err != nil {
+		log.Printf("Failed to save job to database: %v", err)
+	}
 
 	// Broadcast the new job to the Signal channel
 	q.Signal <- id
@@ -176,6 +388,11 @@ func (q *Queue) CopyJob(id string) (string, error) {
 	q.Jobs[newID] = &newJob
 	q.JobOrder = append(q.JobOrder, newID)
 
+	// Save to database
+	if err := q.saveJobToDB(&newJob); err != nil {
+		log.Printf("Failed to save copied job to database: %v", err)
+	}
+
 	// Broadcast the new job to the Signal channel
 	q.Signal <- newID
 	error := serializeListUpdate("create", &newJob)
@@ -198,6 +415,12 @@ func (q *Queue) ClaimJob() (*Job, error) {
 		if job.State == StatePending && q.canClaim(job) {
 			job.State = StateInProgress
 			job.ClaimedAt = time.Now()
+
+			// Save to database
+			if err := q.saveJobToDB(job); err != nil {
+				log.Printf("Failed to save job state to database: %v", err)
+			}
+
 			err := serializeListUpdate("update", job)
 			if err != nil {
 				return nil, err
@@ -242,6 +465,12 @@ func (q *Queue) ErrorJob(id string) error {
 
 	job.State = StateError
 	job.ErroredAt = time.Now()
+
+	// Save to database
+	if err := q.saveJobToDB(job); err != nil {
+		log.Printf("Failed to save job error state to database: %v", err)
+	}
+
 	err := serializeListUpdate("update", job)
 	if err != nil {
 		return nil
@@ -265,6 +494,11 @@ func (q *Queue) CancelJob(id string) error {
 	job.Cancel()
 	job.State = StateCancelled
 
+	// Save to database
+	if err := q.saveJobToDB(job); err != nil {
+		log.Printf("Failed to save job cancellation to database: %v", err)
+	}
+
 	err := serializeListUpdate("update", job)
 	if err != nil {
 		return err
@@ -284,6 +518,12 @@ func (q *Queue) PushJobStdout(id string, stdout string) error {
 	}
 
 	job.Stdout = append(job.Stdout, stdout)
+
+	// Save to database
+	if err := q.saveJobToDB(job); err != nil {
+		log.Printf("Failed to save job stdout to database: %v", err)
+	}
+
 	err := serializeStdout(stdout, id)
 	if err != nil {
 		return nil
@@ -308,6 +548,12 @@ func (q *Queue) CompleteJob(id string) error {
 
 	job.State = StateCompleted
 	job.CompletedAt = time.Now()
+
+	// Save to database
+	if err := q.saveJobToDB(job); err != nil {
+		log.Printf("Failed to save job completion to database: %v", err)
+	}
+
 	err := serializeListUpdate("update", job)
 	if err != nil {
 		return nil
@@ -351,7 +597,11 @@ func (q *Queue) RemoveJob(id string) error {
 			q.JobOrder = append(q.JobOrder[:i], q.JobOrder[i+1:]...)
 			break
 		}
+	}
 
+	// Remove from database
+	if err := q.removeJobFromDB(id); err != nil {
+		log.Printf("Failed to remove job from database: %v", err)
 	}
 
 	err := serializeListUpdate("delete", &Job{ID: id})
@@ -389,6 +639,11 @@ func (q *Queue) ClearNonRunningJobs() (int, error) {
 				q.JobOrder = append(q.JobOrder[:i], q.JobOrder[i+1:]...)
 				break
 			}
+		}
+
+		// Remove from database
+		if err := q.removeJobFromDB(jobID); err != nil {
+			log.Printf("Failed to remove job %s from database: %v", jobID, err)
 		}
 
 		// Broadcast the delete event

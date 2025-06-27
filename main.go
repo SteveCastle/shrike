@@ -51,6 +51,9 @@ var staticFS fs.FS
 // -----------------------------------------------------------------------------
 var srv *http.Server
 
+// Global dependencies variable so we can access it from onExit
+var deps *Dependencies
+
 // -----------------------------------------------------------------------------
 // Dependencies struct to hold shared dependencies
 // -----------------------------------------------------------------------------
@@ -376,11 +379,13 @@ func main() {
 	defer db.Close()
 
 	// ––– job queue and runners –––
-	queue := jobqueue.NewQueue()
+	log.Println("Initializing job queue with database persistence...")
+	queue := jobqueue.NewQueueWithDB(db)
+	log.Printf("Job queue initialized. Current jobs: %d", len(queue.GetJobs()))
 	runners.New(queue, 2)
 
 	// ––– create dependencies struct –––
-	deps := &Dependencies{
+	deps = &Dependencies{
 		Queue: queue,
 		DB:    db,
 	}
@@ -447,6 +452,16 @@ func onReady() {
 }
 
 func onExit() {
+	// Save all jobs to database before shutting down
+	if deps != nil && deps.Queue != nil {
+		log.Println("Saving job queue to database...")
+		if err := deps.Queue.SaveAllJobsToDB(); err != nil {
+			log.Printf("Error saving jobs to database: %v", err)
+		} else {
+			log.Println("Job queue saved successfully")
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
