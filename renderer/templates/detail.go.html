@@ -150,6 +150,8 @@
       /* Status colors - matching the list view */
       .job-status.pending {
         background-color: #f1c40f;
+        border: none;
+        animation: none;
       }
 
       .job-status.in-progress {
@@ -162,14 +164,20 @@
 
       .job-status.completed {
         background-color: #2ecc71;
+        border: none;
+        animation: none;
       }
 
       .job-status.cancelled {
         background-color: #f39c12;
+        border: none;
+        animation: none;
       }
 
       .job-status.error {
         background-color: #e74c3c;
+        border: none;
+        animation: none;
       }
 
       .status-text {
@@ -316,7 +324,31 @@
             if (data.job.id === "{{.Job.ID}}") {
               // Update the jobs state
               const stateString = jobStateToString(data.job.state);
+              const stateClass = jobStateToClass(data.job.state);
+
+              // Update status text content
               document.getElementById("state").innerText = stateString;
+
+              // Update status icon and text CSS classes
+              const statusIcon = document.querySelector(".job-status");
+              const statusText = document.getElementById("state");
+
+              // Remove all possible state classes first
+              const stateClasses = [
+                "pending",
+                "in-progress",
+                "completed",
+                "cancelled",
+                "error",
+              ];
+              stateClasses.forEach((cls) => {
+                statusIcon.classList.remove(cls);
+                statusText.classList.remove(cls);
+              });
+
+              // Add the new state class
+              statusIcon.classList.add(stateClass);
+              statusText.classList.add(stateClass);
 
               if (
                 stateString === "Completed" ||
@@ -402,6 +434,23 @@
             return "Error";
           default:
             return "Unknown";
+        }
+      }
+
+      function jobStateToClass(state) {
+        switch (state) {
+          case 0:
+            return "pending";
+          case 1:
+            return "in-progress";
+          case 2:
+            return "completed";
+          case 3:
+            return "cancelled";
+          case 4:
+            return "error";
+          default:
+            return "pending";
         }
       }
     </script>
