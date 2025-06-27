@@ -1,0 +1,254 @@
+{{ define "media" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Shrike Media Browser</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      .media-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .media-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: monospace;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        margin: 0;
+      }
+
+      .media-header,
+      .media-row {
+        display: grid;
+        grid-template-columns: 3fr 2fr 100px 2fr;
+        gap: 8px;
+        border-bottom: 1px solid #333;
+      }
+
+      .media-header {
+        font-weight: bold;
+        background-color: #333;
+        color: #ffffff;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .media-cell {
+        position: relative;
+        padding: 10px;
+        text-align: left;
+        box-sizing: border-box;
+        color: #d4d4d4;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        overflow: hidden;
+      }
+
+      .media-cell.path {
+        font-family: monospace;
+        color: #61dafb;
+        word-break: break-all;
+        white-space: normal;
+      }
+
+      .media-cell.description {
+        color: #d4d4d4;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .media-cell.size {
+        color: #98c379;
+        text-align: right;
+        justify-content: flex-end;
+      }
+
+      .media-cell.hash {
+        font-family: monospace;
+        color: #e06c75;
+        font-size: 0.9em;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 20px;
+        color: #888;
+        font-style: italic;
+      }
+
+      .end-of-list {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+        font-style: italic;
+      }
+
+      /* Responsive adjustments */
+      @media screen and (max-width: 800px) {
+        .media-header,
+        .media-row {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+
+        .media-cell {
+          padding: 5px 10px;
+          border-bottom: 1px dotted #444;
+        }
+
+        .media-cell:before {
+          content: attr(data-label) ": ";
+          font-weight: bold;
+          color: #aaa;
+          margin-right: 10px;
+        }
+
+        .media-header {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="media-container">
+      <h1>Media Browser</h1>
+      <nav
+        style="
+          margin: 10px 0;
+          padding: 10px;
+          background-color: #333;
+          border-radius: 4px;
+        "
+      >
+        <a href="/" style="margin-right: 20px; color: #61dafb">Jobs</a>
+        <a href="/media" style="color: #61dafb">Media Browser</a>
+      </nav>
+      <div class="media-table">
+        <div class="media-header">
+          <div class="media-cell">Path</div>
+          <div class="media-cell">Description</div>
+          <div class="media-cell">Size</div>
+          <div class="media-cell">Hash</div>
+        </div>
+        <div id="media-list" class="table-body">
+          {{range .MediaItems}}
+          <div class="media-row">
+            <div class="media-cell path" data-label="Path">{{.Path}}</div>
+            <div class="media-cell description" data-label="Description">
+              {{if .Description.Valid}}{{.Description.String}}{{else}}-{{end}}
+            </div>
+            <div class="media-cell size" data-label="Size">
+              {{.FormattedSize}}
+            </div>
+            <div class="media-cell hash" data-label="Hash">
+              {{if .Hash.Valid}}{{.Hash.String}}{{else}}-{{end}}
+            </div>
+          </div>
+          {{end}}
+        </div>
+        <div id="loading" class="loading" style="display: none">
+          Loading more items...
+        </div>
+        <div id="end-of-list" class="end-of-list" style="display: none">
+          No more items to load
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentOffset = {{.Offset}};
+      let isLoading = false;
+      let hasMoreItems = {{.HasMore}};
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+      }
+
+      function loadMoreItems() {
+        if (isLoading || !hasMoreItems) return;
+
+        isLoading = true;
+        document.getElementById('loading').style.display = 'block';
+
+        fetch(`/media/api?offset=${currentOffset}&limit=25`)
+          .then(response => response.json())
+          .then(data => {
+            const mediaList = document.getElementById('media-list');
+
+            data.items.forEach(item => {
+              const row = document.createElement('div');
+              row.className = 'media-row';
+              row.innerHTML = `
+                <div class="media-cell path" data-label="Path">${escapeHtml(item.path)}</div>
+                <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '')}</div>
+                <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
+                <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '')}</div>
+              `;
+              mediaList.appendChild(row);
+            });
+
+            currentOffset += data.items.length;
+            hasMoreItems = data.has_more;
+
+            if (!hasMoreItems) {
+              document.getElementById('end-of-list').style.display = 'block';
+            }
+          })
+          .catch(error => {
+            console.error('Error loading more items:', error);
+          })
+          .finally(() => {
+            isLoading = false;
+            document.getElementById('loading').style.display = 'none';
+          });
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Infinite scroll implementation
+      function checkScroll() {
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const windowHeight = window.innerHeight;
+        const documentHeight = document.documentElement.offsetHeight;
+
+        // Load more when user is within 200px of the bottom
+        if (scrollTop + windowHeight >= documentHeight - 200) {
+          loadMoreItems();
+        }
+      }
+
+      // Throttled scroll event listener
+      let scrollTimeout;
+      window.addEventListener('scroll', function() {
+        if (scrollTimeout) {
+          clearTimeout(scrollTimeout);
+        }
+        scrollTimeout = setTimeout(checkScroll, 100);
+      });
+
+      // Load initial items if the page is not tall enough to scroll
+      document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+          if (document.documentElement.offsetHeight <= window.innerHeight && hasMoreItems) {
+            loadMoreItems();
+          }
+        }, 100);
+      });
+    </script>
+  </body>
+</html>
+{{ end }}

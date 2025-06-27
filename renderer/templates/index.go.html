@@ -8,6 +8,17 @@
   </head>
   <body>
     <h1>Shrike Job Manager</h1>
+    <nav
+      style="
+        margin: 10px;
+        padding: 10px;
+        background-color: #333;
+        border-radius: 4px;
+      "
+    >
+      <a href="/" style="margin-right: 20px; color: #61dafb">Jobs</a>
+      <a href="/media" style="color: #61dafb">Media Browser</a>
+    </nav>
     <form id="createForm">
       <!-- Removed the submit button. Now pressing Enter on the input triggers submit. -->
       <input
@@ -96,9 +107,9 @@
 
           eventSource.addEventListener("delete", (event) => {
             const message = JSON.parse(event.data);
-            console.log("deleted job", message)
+            console.log("deleted job", message);
             const jobElement = document.getElementById(message.job?.id);
-            console.log("job element:", jobElement)
+            console.log("job element:", jobElement);
             jobElement.remove();
           });
         };
