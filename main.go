@@ -134,7 +134,17 @@ func homeHandler(deps *Dependencies) http.HandlerFunc {
 				Arguments: c.Arguments[:len(c.Arguments)-1],
 				Input:     c.Arguments[len(c.Arguments)-1],
 			}
-			deps.Queue.AddWorkflow(workflow)
+			id, err := deps.Queue.AddWorkflow(workflow)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Send successful response for legacy POST
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
+			return
 		}
 
 		// GET – render job list
@@ -214,6 +224,11 @@ func cancelHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		deps.Queue.CancelJob(r.PathValue("id"))
+
+		// Send successful response
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Job cancelled successfully"))
 	}
 }
 
@@ -223,7 +238,16 @@ func copyHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		deps.Queue.CopyJob(r.PathValue("id"))
+		newID, err := deps.Queue.CopyJob(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Send successful response with new job ID
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": newID, "message": "Job copied successfully"})
 	}
 }
 
@@ -235,7 +259,13 @@ func removeHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		if err := deps.Queue.RemoveJob(r.PathValue("id")); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+
+		// Send successful response
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Job removed successfully"))
 	}
 }
 

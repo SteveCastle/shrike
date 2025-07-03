@@ -54,6 +54,7 @@ func init() {
 	RegisterTask("cleanup", "CleanUp", cleanUpFn)
 	RegisterTask("ingest", "Ingest Media Files", ingestTask)
 	RegisterTask("metadata", "Generate Metadata", metadataTask)
+	RegisterTask("move", "Move Media Files", moveTask)
 }
 
 func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error) {
@@ -1365,4 +1366,232 @@ func fileExistsInDatabase(db *sql.DB, path string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// moveTask moves media files to a new target directory while preserving structure and updating database references
+func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	ctx := j.Ctx
+
+	// Parse target directory and optional prefix from arguments
+	var targetDir string
+	var specifiedPrefix string
+
+	for i, arg := range j.Arguments {
+		if arg == "--prefix" || arg == "-p" {
+			// Next argument should be the prefix
+			if i+1 < len(j.Arguments) {
+				specifiedPrefix = strings.TrimSpace(j.Arguments[i+1])
+			}
+		} else if !strings.HasPrefix(arg, "-") && targetDir == "" {
+			// First non-flag argument is the target directory
+			targetDir = strings.TrimSpace(arg)
+		}
+	}
+
+	if targetDir == "" {
+		q.PushJobStdout(j.ID, "Error: No target directory specified in arguments")
+		q.ErrorJob(j.ID)
+		return fmt.Errorf("no target directory specified")
+	}
+
+	// Parse comma-separated paths from input
+	pathsStr := strings.TrimSpace(j.Input)
+	if pathsStr == "" {
+		q.PushJobStdout(j.ID, "No paths provided for moving")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	paths := strings.Split(pathsStr, ",")
+
+	q.PushJobStdout(j.ID, fmt.Sprintf("Starting move operation to target directory: %s", targetDir))
+
+	// Clean and validate paths
+	var validPaths []string
+	for _, path := range paths {
+		cleanPath := strings.TrimSpace(path)
+		if cleanPath == "" {
+			continue
+		}
+
+		// Convert to absolute path
+		absPath, err := filepath.Abs(cleanPath)
+		if err == nil {
+			cleanPath = filepath.FromSlash(absPath)
+		}
+
+		// Check if file exists
+		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: file does not exist: %s", cleanPath))
+			continue
+		}
+
+		validPaths = append(validPaths, cleanPath)
+	}
+
+	if len(validPaths) == 0 {
+		q.PushJobStdout(j.ID, "No valid files found to move")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	q.PushJobStdout(j.ID, fmt.Sprintf("Found %d valid files to move", len(validPaths)))
+
+	// Create target directory if it doesn't exist
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error creating target directory: %v", err))
+		q.ErrorJob(j.ID)
+		return err
+	}
+
+	// Determine prefix to use for preserving structure
+	var prefixToUse string
+	if specifiedPrefix != "" {
+		// Use the specified prefix
+		prefixToUse = filepath.Clean(specifiedPrefix)
+		q.PushJobStdout(j.ID, fmt.Sprintf("Using specified prefix: %s", prefixToUse))
+	} else {
+		// Find common prefix of all source paths to preserve structure
+		prefixToUse = findCommonPrefix(validPaths)
+		q.PushJobStdout(j.ID, fmt.Sprintf("Using calculated common prefix: %s", prefixToUse))
+	}
+
+	// Process each file
+	moveCount := 0
+	updateCount := 0
+	for i, srcPath := range validPaths {
+		// Check if context was cancelled
+		select {
+		case <-ctx.Done():
+			q.PushJobStdout(j.ID, "Task was canceled")
+			q.ErrorJob(j.ID)
+			return ctx.Err()
+		default:
+		}
+
+		// Calculate destination path while preserving structure
+		relativePath := strings.TrimPrefix(srcPath, prefixToUse)
+		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		destPath := filepath.Join(targetDir, relativePath)
+
+		// Create destination directory if needed
+		destDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to create destination directory %s: %v", destDir, err))
+			continue
+		}
+
+		// Move the file
+		if err := os.Rename(srcPath, destPath); err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to move %s to %s: %v", srcPath, destPath, err))
+			continue
+		}
+
+		moveCount++
+
+		// Update database references
+		err := updateMediaPathInDatabase(q.Db, srcPath, destPath)
+		if err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to update database for %s: %v", srcPath, err))
+			// File was moved successfully, but database update failed
+			// This is not critical enough to fail the entire operation
+		} else {
+			updateCount++
+		}
+
+		if (i+1)%10 == 0 || i == len(validPaths)-1 {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Progress: %d/%d files processed", i+1, len(validPaths)))
+		}
+	}
+
+	q.PushJobStdout(j.ID, fmt.Sprintf("Move operation completed: %d files moved, %d database entries updated", moveCount, updateCount))
+
+	// Final context check
+	select {
+	case <-ctx.Done():
+		q.PushJobStdout(j.ID, "Task was canceled")
+		q.ErrorJob(j.ID)
+		return ctx.Err()
+	default:
+	}
+
+	q.CompleteJob(j.ID)
+	return nil
+}
+
+// findCommonPrefix finds the common directory prefix among a list of file paths
+func findCommonPrefix(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	if len(paths) == 1 {
+		return filepath.Dir(paths[0])
+	}
+
+	// Start with the directory of the first path
+	prefix := filepath.Dir(paths[0])
+
+	for _, path := range paths[1:] {
+		pathDir := filepath.Dir(path)
+
+		// Find common prefix between current prefix and this path's directory
+		newPrefix := ""
+		prefixParts := strings.Split(prefix, string(filepath.Separator))
+		pathParts := strings.Split(pathDir, string(filepath.Separator))
+
+		minLen := len(prefixParts)
+		if len(pathParts) < minLen {
+			minLen = len(pathParts)
+		}
+
+		for i := 0; i < minLen; i++ {
+			if prefixParts[i] == pathParts[i] {
+				if newPrefix == "" {
+					newPrefix = prefixParts[i]
+				} else {
+					newPrefix = filepath.Join(newPrefix, prefixParts[i])
+				}
+			} else {
+				break
+			}
+		}
+
+		prefix = newPrefix
+		if prefix == "" {
+			break
+		}
+	}
+
+	return prefix
+}
+
+// updateMediaPathInDatabase updates the path references in both media and media_tag_by_category tables
+func updateMediaPathInDatabase(db *sql.DB, oldPath, newPath string) error {
+	// Start a transaction to ensure both updates succeed or fail together
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback() // This will be a no-op if tx.Commit() succeeds
+
+	// Update media table
+	mediaQuery := `UPDATE media SET path = ? WHERE path = ?`
+	_, err = tx.Exec(mediaQuery, newPath, oldPath)
+	if err != nil {
+		return fmt.Errorf("failed to update media table: %w", err)
+	}
+
+	// Update media_tag_by_category table
+	tagQuery := `UPDATE media_tag_by_category SET media_path = ? WHERE media_path = ?`
+	_, err = tx.Exec(tagQuery, newPath, oldPath)
+	if err != nil {
+		return fmt.Errorf("failed to update media_tag_by_category table: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }

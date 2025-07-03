@@ -510,6 +510,7 @@
           <select id="task-select" required>
             <option value="">Select task...</option>
             <option value="remove">Remove from Database</option>
+            <option value="move">Move Files</option>
             <optgroup label="Generate Metadata">
               <option value="metadata-all">All Metadata Types</option>
               <option value="metadata-description">Description Only</option>
@@ -527,6 +528,76 @@
               />
               Overwrite existing
             </label>
+          </div>
+          <div
+            id="move-options"
+            style="
+              display: none;
+              flex-direction: column;
+              gap: 10px;
+              margin-top: 10px;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                >Target Directory:</label
+              >
+              <input
+                type="text"
+                id="target-directory-path"
+                placeholder="e.g., /new/base/directory/"
+                style="
+                  padding: 6px 10px;
+                  background-color: #1e1e1e;
+                  border: 1px solid #555;
+                  color: #d4d4d4;
+                  border-radius: 4px;
+                  font-family: monospace;
+                  flex: 1;
+                  min-width: 200px;
+                "
+              />
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                >Path Prefix to Remove:</label
+              >
+              <input
+                type="text"
+                id="path-prefix"
+                placeholder="e.g., /old/base/path/"
+                style="
+                  padding: 6px 10px;
+                  background-color: #1e1e1e;
+                  border: 1px solid #555;
+                  color: #d4d4d4;
+                  border-radius: 4px;
+                  font-family: monospace;
+                  flex: 1;
+                  min-width: 200px;
+                "
+              />
+            </div>
+            <div style="font-size: 0.8em; color: #888; line-height: 1.3">
+              <strong>Note:</strong> Files will be moved from their current
+              location to the target directory. The path prefix will be removed
+              from each file's current path before appending to the target
+              directory.
+            </div>
           </div>
           <button type="submit" id="execute-button">Execute</button>
           <button
@@ -681,15 +752,24 @@
         updateSelection();
       }
 
-      // Show/hide metadata options based on task selection
+      // Show/hide options based on task selection
       document.getElementById('task-select').addEventListener('change', function() {
         const metadataOptions = document.getElementById('metadata-options');
+        const moveOptions = document.getElementById('move-options');
+
+        // Hide all options first
+        metadataOptions.style.display = 'none';
+        moveOptions.style.display = 'none';
+
+        // Show relevant options
         if (this.value.startsWith('metadata-')) {
           metadataOptions.style.display = 'block';
-        } else {
-          metadataOptions.style.display = 'none';
+        } else if (this.value === 'move') {
+          moveOptions.style.display = 'flex';
         }
       });
+
+
 
       // Handle bulk actions form submission
       document.getElementById('bulk-actions-form').addEventListener('submit', function(e) {
@@ -717,6 +797,33 @@
           command = 'remove';
           args = [];
           input = Array.from(selectedItems).join(',');
+                } else if (selectedTask === 'move') {
+          command = 'move';
+          args = [];
+
+          // Get target directory from text input
+          const targetDirectoryInput = document.getElementById('target-directory-path');
+          const pathPrefixInput = document.getElementById('path-prefix');
+
+          const targetPath = targetDirectoryInput.value.trim();
+
+          // Validate target path
+          if (!targetPath) {
+            alert('Please enter a target directory path');
+            return;
+          }
+
+          // Add target directory as first argument (no flag)
+          args.push(targetPath);
+
+          // Add path prefix if specified
+          const pathPrefix = pathPrefixInput.value.trim();
+          if (pathPrefix) {
+            args.push('--prefix', pathPrefix);
+          }
+
+          // Create comma-separated list of files with no spaces, wrapped in quotes
+          input = `"${Array.from(selectedItems).join(',')}"`;
         } else if (selectedTask.startsWith('metadata-')) {
           command = 'metadata';
           args = [];
@@ -1199,7 +1306,7 @@
       });
 
       function handleJobCompletion(job) {
-        const mediaAffectingCommands = ['remove', 'metadata', 'ingest', 'cleanup'];
+        const mediaAffectingCommands = ['remove', 'metadata', 'ingest', 'cleanup', 'move'];
 
         if (!mediaAffectingCommands.includes(job.command)) {
           return; // Job doesn't affect media
@@ -1219,6 +1326,9 @@
             break;
           case 'cleanup':
             handleCleanupJobCompletion(job);
+            break;
+          case 'move':
+            handleMoveJobCompletion(job);
             break;
         }
       }
@@ -1283,6 +1393,38 @@
 
         // Could optionally reload the entire list
         if (confirm('Database cleanup completed. Would you like to refresh the list to see changes?')) {
+          window.location.reload();
+        }
+      }
+
+      function handleMoveJobCompletion(job) {
+        // For move jobs, file paths in the database have been updated to new locations
+        const input = job.input;
+        if (!input) return;
+
+        // Parse paths from input (newline separated for move jobs)
+        const originalPaths = input.split('\n').map(path => path.trim()).filter(path => path);
+
+        // Remove the original rows since the paths have changed
+        originalPaths.forEach(path => {
+          const rows = document.querySelectorAll('.media-row');
+          rows.forEach(row => {
+            const pathCell = row.querySelector('.media-cell.path');
+            if (pathCell && pathCell.textContent.trim() === path) {
+              row.remove();
+              // Also remove from selected items if it was selected
+              selectedItems.delete(path);
+            }
+          });
+        });
+
+        // Update selection UI
+        updateSelection();
+
+        showNotification(`Moved ${originalPaths.length} media item(s) to new location`, 'success');
+
+        // Suggest refreshing to see the moved items at their new paths
+        if (confirm('Files have been moved successfully. Would you like to refresh the list to see the updated paths?')) {
           window.location.reload();
         }
       }
