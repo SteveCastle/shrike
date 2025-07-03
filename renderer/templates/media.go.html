@@ -24,7 +24,7 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 3fr 2fr 100px 80px 1.5fr 2fr;
+        grid-template-columns: 40px 3fr 2fr 100px 80px 1.5fr 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
         align-items: start;
@@ -50,6 +50,16 @@
         display: flex;
         align-items: center;
         overflow: hidden;
+      }
+
+      .media-cell.checkbox {
+        justify-content: center;
+        padding: 8px;
+      }
+
+      .media-cell.checkbox input[type="checkbox"] {
+        transform: scale(1.2);
+        cursor: pointer;
       }
 
       .media-cell.path {
@@ -137,6 +147,93 @@
         padding: 20px;
         color: #666;
         font-style: italic;
+      }
+
+      /* Bulk Actions Panel */
+      .bulk-actions {
+        position: sticky;
+        top: 80px;
+        z-index: 5;
+        background: linear-gradient(135deg, #2d2d2d, #1e1e1e);
+        border: 2px solid #61dafb;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 20px 0;
+        display: none;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      }
+
+      .bulk-actions.show {
+        display: block;
+      }
+
+      .bulk-actions-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      .bulk-actions-title {
+        color: #61dafb;
+        font-weight: bold;
+        font-size: 1.1em;
+      }
+
+      .bulk-actions-count {
+        background-color: #61dafb;
+        color: #000;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.9em;
+        font-weight: bold;
+      }
+
+      .bulk-actions-form {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .bulk-actions-form select {
+        padding: 8px 12px;
+        background-color: #1e1e1e;
+        border: 1px solid #555;
+        color: #d4d4d4;
+        border-radius: 4px;
+        font-family: monospace;
+        min-width: 150px;
+      }
+
+      .bulk-actions-form button {
+        padding: 8px 16px;
+        background-color: #61dafb;
+        color: #000;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background-color 0.2s ease;
+      }
+
+      .bulk-actions-form button:hover {
+        background-color: #4fa8d8;
+      }
+
+      .bulk-actions-form button:disabled {
+        background-color: #666;
+        color: #999;
+        cursor: not-allowed;
+      }
+
+      .bulk-clear-btn {
+        background-color: #666 !important;
+        color: #fff !important;
+      }
+
+      .bulk-clear-btn:hover {
+        background-color: #777 !important;
       }
 
       /* Media Preview Tooltip */
@@ -265,6 +362,16 @@
         .media-preview-content {
           height: 150px;
         }
+
+        .bulk-actions-form {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .bulk-actions-form select,
+        .bulk-actions-form button {
+          width: 100%;
+        }
       }
     </style>
   </head>
@@ -357,8 +464,55 @@
           "video" or "movie"
         </div>
       </div>
+
+      <!-- Bulk Actions Panel -->
+      <div id="bulk-actions" class="bulk-actions">
+        <div class="bulk-actions-header">
+          <div class="bulk-actions-title">Bulk Actions</div>
+          <div class="bulk-actions-count" id="selected-count">0 selected</div>
+        </div>
+        <form class="bulk-actions-form" id="bulk-actions-form">
+          <select id="task-select" required>
+            <option value="">Select task...</option>
+            <option value="remove">Remove from Database</option>
+            <optgroup label="Generate Metadata">
+              <option value="metadata-all">All Metadata Types</option>
+              <option value="metadata-description">Description Only</option>
+              <option value="metadata-transcript">Transcript Only</option>
+              <option value="metadata-hash">Hash Only</option>
+              <option value="metadata-dimensions">Dimensions Only</option>
+            </optgroup>
+          </select>
+          <div id="metadata-options" style="display: none">
+            <label style="color: #aaa; font-size: 0.9em">
+              <input
+                type="checkbox"
+                id="overwrite-checkbox"
+                style="margin-right: 5px"
+              />
+              Overwrite existing
+            </label>
+          </div>
+          <button type="submit" id="execute-button">Execute</button>
+          <button
+            type="button"
+            class="bulk-clear-btn"
+            onclick="clearSelection()"
+          >
+            Clear Selection
+          </button>
+        </form>
+      </div>
+
       <div class="media-table">
         <div class="media-header">
+          <div class="media-cell checkbox">
+            <input
+              type="checkbox"
+              id="select-all"
+              onchange="toggleSelectAll(this)"
+            />
+          </div>
           <div class="media-cell">Path</div>
           <div class="media-cell">Description</div>
           <div class="media-cell">Size</div>
@@ -369,6 +523,14 @@
         <div id="media-list" class="table-body">
           {{range .MediaItems}}
           <div class="media-row">
+            <div class="media-cell checkbox" data-label="Select">
+              <input
+                type="checkbox"
+                class="media-checkbox"
+                value="{{htmlAttr .Path}}"
+                onchange="updateSelection()"
+              />
+            </div>
             <div
               class="media-cell path"
               data-label="Path"
@@ -425,6 +587,165 @@
       let isLoading = false;
       let hasMoreItems = {{.HasMore}};
       let currentSearchQuery = "{{.SearchQuery}}";
+
+      // Selection management
+      let selectedItems = new Set();
+
+      function updateSelection() {
+        selectedItems.clear();
+        const checkboxes = document.querySelectorAll('.media-checkbox:checked');
+        checkboxes.forEach(cb => selectedItems.add(cb.value));
+
+        const count = selectedItems.size;
+        document.getElementById('selected-count').textContent = `${count} selected`;
+
+        const bulkActions = document.getElementById('bulk-actions');
+        if (count > 0) {
+          bulkActions.classList.add('show');
+        } else {
+          bulkActions.classList.remove('show');
+        }
+
+        // Update select-all checkbox state
+        const allCheckboxes = document.querySelectorAll('.media-checkbox');
+        const selectAllCheckbox = document.getElementById('select-all');
+        if (count === 0) {
+          selectAllCheckbox.indeterminate = false;
+          selectAllCheckbox.checked = false;
+        } else if (count === allCheckboxes.length) {
+          selectAllCheckbox.indeterminate = false;
+          selectAllCheckbox.checked = true;
+        } else {
+          selectAllCheckbox.indeterminate = true;
+          selectAllCheckbox.checked = false;
+        }
+      }
+
+      function toggleSelectAll(checkbox) {
+        const mediaCheckboxes = document.querySelectorAll('.media-checkbox');
+        mediaCheckboxes.forEach(cb => {
+          cb.checked = checkbox.checked;
+        });
+        updateSelection();
+      }
+
+      function clearSelection() {
+        const checkboxes = document.querySelectorAll('.media-checkbox, #select-all');
+        checkboxes.forEach(cb => {
+          cb.checked = false;
+          cb.indeterminate = false;
+        });
+        updateSelection();
+      }
+
+      // Show/hide metadata options based on task selection
+      document.getElementById('task-select').addEventListener('change', function() {
+        const metadataOptions = document.getElementById('metadata-options');
+        if (this.value.startsWith('metadata-')) {
+          metadataOptions.style.display = 'block';
+        } else {
+          metadataOptions.style.display = 'none';
+        }
+      });
+
+      // Handle bulk actions form submission
+      document.getElementById('bulk-actions-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const taskSelect = document.getElementById('task-select');
+        const selectedTask = taskSelect.value;
+        const overwriteCheckbox = document.getElementById('overwrite-checkbox');
+        const executeButton = document.getElementById('execute-button');
+
+        if (!selectedTask) {
+          alert('Please select a task to execute');
+          return;
+        }
+
+        if (selectedItems.size === 0) {
+          alert('Please select at least one media item');
+          return;
+        }
+
+        // Prepare the command based on selected task
+        let command, args = [], input;
+
+        if (selectedTask === 'remove') {
+          command = 'remove';
+          args = [];
+          input = Array.from(selectedItems).join(',');
+        } else if (selectedTask.startsWith('metadata-')) {
+          command = 'metadata';
+          args = [];
+
+          // Add metadata type argument
+          if (selectedTask === 'metadata-description') {
+            args.push('--type', 'description');
+          } else if (selectedTask === 'metadata-transcript') {
+            args.push('--type', 'transcript');
+          } else if (selectedTask === 'metadata-hash') {
+            args.push('--type', 'hash');
+          } else if (selectedTask === 'metadata-dimensions') {
+            args.push('--type', 'dimensions');
+          }
+          // For 'metadata-all', don't specify type to use default (all types)
+
+          // Add overwrite flag if checked
+          if (overwriteCheckbox.checked) {
+            args.push('--overwrite');
+          }
+
+          // Set apply scope to all since we're explicitly selecting files
+          args.push('--apply', 'all');
+
+          input = Array.from(selectedItems).join('\n');
+        }
+
+        // Confirm the action
+        const itemWord = selectedItems.size === 1 ? 'item' : 'items';
+        const taskName = taskSelect.options[taskSelect.selectedIndex].text;
+        if (!confirm(`Execute "${taskName}" on ${selectedItems.size} ${itemWord}?`)) {
+          return;
+        }
+
+        // Disable the button
+        executeButton.disabled = true;
+        executeButton.textContent = 'Executing...';
+
+        // Create the job
+        const jobData = {
+          input: `${command} ${args.join(' ')} ${input}`
+        };
+
+        fetch('/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(jobData)
+        })
+        .then(response => {
+          if (response.ok) {
+            return response.json();
+          }
+          throw new Error('Failed to create job');
+        })
+        .then(result => {
+          alert(`Job created successfully! Job ID: ${result.id}`);
+          clearSelection();
+
+          // Optionally redirect to job page
+          if (confirm('Would you like to view the job progress?')) {
+            window.open(`/job/${result.id}`, '_blank');
+          }
+        })
+        .catch(error => {
+          console.error('Error creating job:', error);
+          alert('Error creating job. Please try again.');
+        })
+        .finally(() => {
+          executeButton.disabled = false;
+          executeButton.textContent = 'Execute';
+        });
+      });
 
       // Media preview functionality
       let previewTimeout;
@@ -688,6 +1009,9 @@
               }
 
               row.innerHTML = `
+                <div class="media-cell checkbox" data-label="Select">
+                  <input type="checkbox" class="media-checkbox" value="${escapeHtml(item.path)}" onchange="updateSelection()">
+                </div>
                 <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(item.path)}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(item.path)}</div>
                 <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '-')}</div>
                 <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
