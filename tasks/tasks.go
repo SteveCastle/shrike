@@ -1394,7 +1394,7 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return fmt.Errorf("no target directory specified")
 	}
 
-	// Parse comma-separated paths from input
+	// Parse comma-separated paths from input with better handling
 	pathsStr := strings.TrimSpace(j.Input)
 	if pathsStr == "" {
 		q.PushJobStdout(j.ID, "No paths provided for moving")
@@ -1402,23 +1402,42 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return nil
 	}
 
-	paths := strings.Split(pathsStr, ",")
+	// Split by comma and clean each path more thoroughly
+	rawPaths := strings.Split(pathsStr, ",")
+	var cleanedPaths []string
 
-	q.PushJobStdout(j.ID, fmt.Sprintf("Starting move operation to target directory: %s", targetDir))
-
-	// Clean and validate paths
-	var validPaths []string
-	for _, path := range paths {
-		cleanPath := strings.TrimSpace(path)
+	for _, rawPath := range rawPaths {
+		cleanPath := strings.TrimSpace(rawPath)
 		if cleanPath == "" {
 			continue
 		}
 
-		// Convert to absolute path
-		absPath, err := filepath.Abs(cleanPath)
-		if err == nil {
-			cleanPath = filepath.FromSlash(absPath)
+		// Remove any surrounding quotes that might be present
+		cleanPath = strings.Trim(cleanPath, `"'`)
+		if cleanPath != "" {
+			cleanedPaths = append(cleanedPaths, cleanPath)
 		}
+	}
+
+	if len(cleanedPaths) == 0 {
+		q.PushJobStdout(j.ID, "No valid paths found after parsing input")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	q.PushJobStdout(j.ID, fmt.Sprintf("Starting move operation to target directory: %s", targetDir))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Parsed %d paths from input", len(cleanedPaths)))
+
+	// Clean and validate paths
+	var validPaths []string
+	for _, path := range cleanedPaths {
+		// Convert to absolute path
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: could not resolve absolute path for %s: %v", path, err))
+			continue
+		}
+		cleanPath := filepath.FromSlash(absPath)
 
 		// Check if file exists
 		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
@@ -1448,12 +1467,21 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	var prefixToUse string
 	if specifiedPrefix != "" {
 		// Use the specified prefix
-		prefixToUse = filepath.Clean(specifiedPrefix)
+		absPrefix, err := filepath.Abs(specifiedPrefix)
+		if err == nil {
+			prefixToUse = filepath.FromSlash(absPrefix)
+		} else {
+			prefixToUse = filepath.Clean(specifiedPrefix)
+		}
 		q.PushJobStdout(j.ID, fmt.Sprintf("Using specified prefix: %s", prefixToUse))
 	} else {
 		// Find common prefix of all source paths to preserve structure
 		prefixToUse = findCommonPrefix(validPaths)
-		q.PushJobStdout(j.ID, fmt.Sprintf("Using calculated common prefix: %s", prefixToUse))
+		if prefixToUse == "" {
+			q.PushJobStdout(j.ID, "Warning: No common prefix found, files will be moved to target directory root")
+		} else {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Using calculated common prefix: %s", prefixToUse))
+		}
 	}
 
 	// Process each file
@@ -1470,9 +1498,27 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		}
 
 		// Calculate destination path while preserving structure
-		relativePath := strings.TrimPrefix(srcPath, prefixToUse)
-		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		var relativePath string
+		if prefixToUse != "" && strings.HasPrefix(srcPath, prefixToUse) {
+			relativePath = strings.TrimPrefix(srcPath, prefixToUse)
+			relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		} else {
+			// If no common prefix or path doesn't start with prefix, just use filename
+			relativePath = filepath.Base(srcPath)
+		}
+
+		// Ensure we have a valid relative path
+		if relativePath == "" {
+			relativePath = filepath.Base(srcPath)
+		}
+
 		destPath := filepath.Join(targetDir, relativePath)
+
+		// Check if destination already exists
+		if _, err := os.Stat(destPath); err == nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: destination already exists, skipping: %s", destPath))
+			continue
+		}
 
 		// Create destination directory if needed
 		destDir := filepath.Dir(destPath)
@@ -1488,6 +1534,7 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		}
 
 		moveCount++
+		q.PushJobStdout(j.ID, fmt.Sprintf("Moved: %s -> %s", srcPath, destPath))
 
 		// Update database references
 		err := updateMediaPathInDatabase(q.Db, srcPath, destPath)
@@ -1531,13 +1578,23 @@ func findCommonPrefix(paths []string) string {
 	// Start with the directory of the first path
 	prefix := filepath.Dir(paths[0])
 
+	// Handle edge case where first path is at root
+	if prefix == "." || prefix == "/" || (len(prefix) == 3 && prefix[1] == ':' && prefix[2] == '\\') {
+		return ""
+	}
+
 	for _, path := range paths[1:] {
 		pathDir := filepath.Dir(path)
 
+		// Handle edge case where any path is at root
+		if pathDir == "." || pathDir == "/" || (len(pathDir) == 3 && pathDir[1] == ':' && pathDir[2] == '\\') {
+			return ""
+		}
+
 		// Find common prefix between current prefix and this path's directory
 		newPrefix := ""
-		prefixParts := strings.Split(prefix, string(filepath.Separator))
-		pathParts := strings.Split(pathDir, string(filepath.Separator))
+		prefixParts := strings.Split(filepath.Clean(prefix), string(filepath.Separator))
+		pathParts := strings.Split(filepath.Clean(pathDir), string(filepath.Separator))
 
 		minLen := len(prefixParts)
 		if len(pathParts) < minLen {
@@ -1559,6 +1616,15 @@ func findCommonPrefix(paths []string) string {
 		prefix = newPrefix
 		if prefix == "" {
 			break
+		}
+	}
+
+	// Clean the final prefix and ensure it's a valid directory path
+	if prefix != "" {
+		prefix = filepath.Clean(prefix)
+		// Ensure prefix ends with separator for consistent trimming
+		if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+			prefix += string(filepath.Separator)
 		}
 	}
 

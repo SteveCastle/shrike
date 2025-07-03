@@ -796,7 +796,7 @@
         if (selectedTask === 'remove') {
           command = 'remove';
           args = [];
-          input = Array.from(selectedItems).join(',');
+          input = `"${Array.from(selectedItems).join(',')}"`;
                 } else if (selectedTask === 'move') {
           command = 'move';
           args = [];
