@@ -24,7 +24,7 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 40px 3fr 2fr 100px 80px 1.5fr 2fr;
+        grid-template-columns: 40px 3fr 2fr 80px 80px 100px 80px 1.5fr 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
         align-items: start;
@@ -79,6 +79,41 @@
         color: #d4d4d4;
         white-space: normal;
         word-break: break-word;
+        max-height: 80px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: #555 #2d2d2d;
+        display: block;
+        padding: 8px 10px;
+        line-height: 1.4;
+        box-sizing: border-box;
+        text-align: left;
+      }
+
+      .media-cell.description::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .media-cell.description::-webkit-scrollbar-track {
+        background: #2d2d2d;
+        border-radius: 3px;
+      }
+
+      .media-cell.description::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 3px;
+      }
+
+      .media-cell.description::-webkit-scrollbar-thumb:hover {
+        background: #666;
+      }
+
+      .media-cell.dimensions {
+        color: #e5c07b;
+        text-align: center;
+        justify-content: center;
+        font-size: 0.9em;
       }
 
       .media-cell.size {
@@ -515,6 +550,8 @@
           </div>
           <div class="media-cell">Path</div>
           <div class="media-cell">Description</div>
+          <div class="media-cell">Width</div>
+          <div class="media-cell">Height</div>
           <div class="media-cell">Size</div>
           <div class="media-cell">Exists</div>
           <div class="media-cell">Hash</div>
@@ -542,6 +579,12 @@
             </div>
             <div class="media-cell description" data-label="Description">
               {{if .Description.Valid}}{{.Description.String}}{{else}}-{{end}}
+            </div>
+            <div class="media-cell dimensions" data-label="Width">
+              {{if .Width.Valid}}{{.Width.Int64}}{{else}}-{{end}}
+            </div>
+            <div class="media-cell dimensions" data-label="Height">
+              {{if .Height.Valid}}{{.Height.Int64}}{{else}}-{{end}}
             </div>
             <div class="media-cell size" data-label="Size">
               {{.FormattedSize}}
@@ -1014,6 +1057,8 @@
                 </div>
                 <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(item.path)}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(item.path)}</div>
                 <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '-')}</div>
+                <div class="media-cell dimensions" data-label="Width">${item.width || '-'}</div>
+                <div class="media-cell dimensions" data-label="Height">${item.height || '-'}</div>
                 <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
                 <div class="media-cell exists" data-label="Exists">${item.exists ? '✅' : '❌'}</div>
                 <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '-')}</div>
@@ -1099,6 +1144,279 @@
           }
         }, 100);
       });
+
+      // EventSource for real-time updates
+      document.addEventListener('DOMContentLoaded', function() {
+        let eventSource = null;
+        const connectEventSource = () => {
+          if (!navigator.onLine) {
+            console.warn('Offline. EventSource will not connect.');
+            return;
+          }
+
+          console.log('Connecting to EventSource...');
+          eventSource = new EventSource('/stream');
+
+          eventSource.onopen = () => {
+            console.log('EventSource connected.');
+          };
+
+          eventSource.onerror = (error) => {
+            console.error('EventSource error:', error);
+            if (eventSource.readyState === EventSource.CLOSED) {
+              console.log('Retrying EventSource connection in 3 seconds...');
+              setTimeout(connectEventSource, 3000);
+            }
+          };
+
+          eventSource.addEventListener('update', (event) => {
+            const jobUpdate = JSON.parse(event.data);
+            const job = jobUpdate.job;
+
+            // Check if this is a job completion that affects media
+            if (job.state === 2) { // StateCompleted = 2
+              handleJobCompletion(job);
+            }
+          });
+        };
+
+        connectEventSource();
+
+        window.addEventListener('beforeunload', (e) => {
+          if (eventSource) {
+            eventSource.close();
+            console.log('EventSource connection closed.');
+          }
+        });
+
+        window.addEventListener('online', connectEventSource);
+        window.addEventListener('offline', () => {
+          if (eventSource) {
+            eventSource.close();
+            console.log('EventSource closed due to offline status.');
+          }
+        });
+      });
+
+      function handleJobCompletion(job) {
+        const mediaAffectingCommands = ['remove', 'metadata', 'ingest', 'cleanup'];
+
+        if (!mediaAffectingCommands.includes(job.command)) {
+          return; // Job doesn't affect media
+        }
+
+        console.log('Media-affecting job completed:', job);
+
+        switch (job.command) {
+          case 'remove':
+            handleRemoveJobCompletion(job);
+            break;
+          case 'metadata':
+            handleMetadataJobCompletion(job);
+            break;
+          case 'ingest':
+            handleIngestJobCompletion(job);
+            break;
+          case 'cleanup':
+            handleCleanupJobCompletion(job);
+            break;
+        }
+      }
+
+      function handleRemoveJobCompletion(job) {
+        // For remove jobs, we need to parse the input to get affected paths
+        const input = job.input;
+        if (!input) return;
+
+        const paths = input.split(',').map(path => path.trim());
+
+        // Remove rows from the current view
+        paths.forEach(path => {
+          const rows = document.querySelectorAll('.media-row');
+          rows.forEach(row => {
+            const pathCell = row.querySelector('.media-cell.path');
+            if (pathCell && pathCell.textContent.trim() === path) {
+              row.remove();
+              // Also remove from selected items if it was selected
+              selectedItems.delete(path);
+            }
+          });
+        });
+
+        // Update selection UI
+        updateSelection();
+
+        showNotification(`Removed ${paths.length} media item(s) from database`, 'success');
+      }
+
+      function handleMetadataJobCompletion(job) {
+        // For metadata jobs, we need to refresh the affected rows
+        const input = job.input;
+        if (!input) return;
+
+        // Parse paths from input (could be newline or comma separated)
+        const paths = input.split(/[\n,]/).map(path => path.trim()).filter(path => path);
+
+        // Refresh affected rows by fetching updated data
+        refreshMediaRows(paths);
+
+        showNotification(`Updated metadata for ${paths.length} media item(s)`, 'success');
+      }
+
+      function handleIngestJobCompletion(job) {
+        // For ingest jobs, new media might have been added
+        // We could either reload the entire list or show a notification
+        showNotification('Media ingest completed. New items may be available.', 'info');
+
+        // If we're showing all items (no search), we could reload
+        if (!currentSearchQuery) {
+          // Optionally ask user if they want to refresh
+          if (confirm('New media items have been ingested. Would you like to refresh the list?')) {
+            window.location.reload();
+          }
+        }
+      }
+
+      function handleCleanupJobCompletion(job) {
+        // For cleanup jobs, some items might have been removed
+        showNotification('Database cleanup completed. Some items may have been removed.', 'info');
+
+        // Could optionally reload the entire list
+        if (confirm('Database cleanup completed. Would you like to refresh the list to see changes?')) {
+          window.location.reload();
+        }
+      }
+
+      function refreshMediaRows(paths) {
+        // For each path, find the row and refresh it with updated data
+        paths.forEach(path => {
+          // Find the row for this path
+          const rows = document.querySelectorAll('.media-row');
+          const targetRow = Array.from(rows).find(row => {
+            const pathCell = row.querySelector('.media-cell.path');
+            return pathCell && pathCell.textContent.trim() === path;
+          });
+
+          if (targetRow) {
+            refreshSingleMediaRow(targetRow, path);
+          }
+        });
+      }
+
+      function refreshSingleMediaRow(rowElement, path) {
+        // Fetch updated data for this specific media item
+        const encodedPath = encodeURIComponent(path);
+
+        fetch(`/media/api?path=${encodedPath}&single=true`)
+          .then(response => response.json())
+          .then(data => {
+            if (data.items && data.items.length > 0) {
+              const item = data.items[0];
+              updateRowWithNewData(rowElement, item);
+            }
+          })
+          .catch(error => {
+            console.error('Error refreshing media row:', error);
+          });
+      }
+
+      function updateRowWithNewData(rowElement, item) {
+        // Find and update specific cells
+        const descriptionCell = rowElement.querySelector('.media-cell.description');
+        if (descriptionCell) {
+          descriptionCell.textContent = item.description || '-';
+        }
+
+        const widthCells = rowElement.querySelectorAll('.media-cell.dimensions');
+        if (widthCells.length >= 1) {
+          widthCells[0].textContent = item.width || '-';
+        }
+        if (widthCells.length >= 2) {
+          widthCells[1].textContent = item.height || '-';
+        }
+
+        const hashCell = rowElement.querySelector('.media-cell.hash');
+        if (hashCell) {
+          hashCell.textContent = item.hash || '-';
+        }
+
+        const tagsCell = rowElement.querySelector('.media-cell.tags');
+        if (tagsCell) {
+          let tagsHtml = '-';
+          if (item.tags && item.tags.length > 0) {
+            tagsHtml = item.tags.map(tag =>
+              `<span class="tag-item"><span class="tag-category">${escapeHtml(tag.category)}</span>:${escapeHtml(tag.label)}</span>`
+            ).join('');
+          }
+          tagsCell.innerHTML = tagsHtml;
+        }
+
+        // Add a subtle animation to indicate the row was updated
+        rowElement.style.backgroundColor = '#2a4a3a';
+        setTimeout(() => {
+          rowElement.style.backgroundColor = '';
+        }, 2000);
+      }
+
+      function showNotification(message, type = 'info') {
+        // Create a notification element
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 10000;
+          padding: 12px 20px;
+          border-radius: 6px;
+          color: white;
+          font-weight: bold;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          max-width: 400px;
+          word-wrap: break-word;
+          transition: opacity 0.3s ease;
+        `;
+
+        switch (type) {
+          case 'success':
+            notification.style.backgroundColor = '#28a745';
+            break;
+          case 'error':
+            notification.style.backgroundColor = '#dc3545';
+            break;
+          case 'info':
+          default:
+            notification.style.backgroundColor = '#17a2b8';
+            break;
+        }
+
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+          notification.style.opacity = '0';
+          setTimeout(() => {
+            if (notification.parentNode) {
+              notification.parentNode.removeChild(notification);
+            }
+          }, 300);
+        }, 5000);
+      }
+
+      function htmlToNode(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html.trim();
+        const nNodes = template.content.childNodes.length;
+        if (nNodes !== 1) {
+          throw new Error(
+            `html parameter must represent a single node; got ${nNodes}. ` +
+              'Note that leading or trailing spaces around an element in your ' +
+              'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
+              'the element; call .trim() on your input to avoid this.'
+          );
+        }
+        return template.content.firstChild;
+      }
     </script>
   </body>
 </html>

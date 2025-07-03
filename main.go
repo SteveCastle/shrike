@@ -305,7 +305,37 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 		offsetStr := r.URL.Query().Get("offset")
 		limitStr := r.URL.Query().Get("limit")
 		searchQuery := r.URL.Query().Get("q")
+		pathQuery := r.URL.Query().Get("path")
+		singleStr := r.URL.Query().Get("single")
 
+		// Check if this is a single item request by path
+		if pathQuery != "" && singleStr == "true" {
+			// Handle single item lookup by path
+			item, err := media.GetItemByPath(deps.DB, pathQuery)
+			if err != nil {
+				log.Printf("Error fetching media item by path '%s': %v", pathQuery, err)
+				http.Error(w, "Error fetching media item", http.StatusInternalServerError)
+				return
+			}
+
+			var items []media.MediaItem
+			if item != nil {
+				items = append(items, *item)
+			}
+
+			response := media.APIResponse{
+				Items:   items,
+				HasMore: false,
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				log.Printf("Error encoding JSON response: %v", err)
+			}
+			return
+		}
+
+		// Handle regular pagination requests
 		offset := 0
 		limit := 25
 

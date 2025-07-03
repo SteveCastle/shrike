@@ -19,6 +19,8 @@ type MediaItem struct {
 	Description   sql.NullString `json:"description"`
 	Size          sql.NullInt64  `json:"size"`
 	Hash          sql.NullString `json:"hash"`
+	Width         sql.NullInt64  `json:"width"`
+	Height        sql.NullInt64  `json:"height"`
 	FormattedSize string         `json:"-"`
 	Tags          []MediaTag     `json:"tags"`
 	Exists        bool           `json:"exists"`
@@ -38,6 +40,8 @@ func (m MediaItem) MarshalJSON() ([]byte, error) {
 		Description *string `json:"description"`
 		Size        *int64  `json:"size"`
 		Hash        *string `json:"hash"`
+		Width       *int64  `json:"width"`
+		Height      *int64  `json:"height"`
 	}{
 		Alias: (*Alias)(&m),
 		Description: func() *string {
@@ -57,6 +61,20 @@ func (m MediaItem) MarshalJSON() ([]byte, error) {
 		Hash: func() *string {
 			if m.Hash.Valid {
 				return &m.Hash.String
+			} else {
+				return nil
+			}
+		}(),
+		Width: func() *int64 {
+			if m.Width.Valid {
+				return &m.Width.Int64
+			} else {
+				return nil
+			}
+		}(),
+		Height: func() *int64 {
+			if m.Height.Valid {
+				return &m.Height.Int64
 			} else {
 				return nil
 			}
@@ -256,6 +274,10 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 			columnName = "m.size"
 		case "hash":
 			columnName = "m.hash"
+		case "width":
+			columnName = "m.width"
+		case "height":
+			columnName = "m.height"
 		case "tag":
 			if condition.Negate {
 				// For NOT tag searches, use NOT EXISTS subquery
@@ -287,9 +309,9 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 		}
 
 		// Handle regular media table columns
-		if condition.Column == "path" || condition.Column == "description" || condition.Column == "size" || condition.Column == "hash" {
+		if condition.Column == "path" || condition.Column == "description" || condition.Column == "size" || condition.Column == "hash" || condition.Column == "width" || condition.Column == "height" {
 			// Handle nullable columns
-			if condition.Column == "description" || condition.Column == "hash" {
+			if condition.Column == "description" || condition.Column == "hash" || condition.Column == "width" || condition.Column == "height" {
 				if condition.Operator == "=" && condition.Value == "" {
 					clause = fmt.Sprintf("%s IS NULL", columnName)
 				} else {
@@ -299,12 +321,12 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 			} else {
 				clause = fmt.Sprintf("%s %s ?", columnName, condition.Operator)
 
-				// Convert size values to integers
-				if condition.Column == "size" {
+				// Convert numeric values to integers
+				if condition.Column == "size" || condition.Column == "width" || condition.Column == "height" {
 					if val, err := strconv.ParseInt(condition.Value, 10, 64); err == nil {
 						args = append(args, val)
 					} else {
-						continue // Skip invalid size values
+						continue // Skip invalid numeric values
 					}
 				} else {
 					args = append(args, condition.Value)
@@ -406,7 +428,7 @@ func evaluateExistsConditions(item MediaItem, conditions []SearchCondition) bool
 
 // GetItems fetches media items from the database with pagination and search
 func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, bool, error) {
-	baseQuery := `SELECT DISTINCT m.path, m.description, m.size, m.hash FROM media m`
+	baseQuery := `SELECT DISTINCT m.path, m.description, m.size, m.hash, m.width, m.height FROM media m`
 	var joinClause string
 	orderBy := ` ORDER BY m.path`
 
@@ -455,7 +477,7 @@ func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, b
 	var mediaPaths []string
 	for rows.Next() {
 		var item MediaItem
-		err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash)
+		err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash, &item.Width, &item.Height)
 		if err != nil {
 			return nil, false, err
 		}
@@ -508,6 +530,45 @@ func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, b
 	return items, hasMore, nil
 }
 
+// GetItemByPath fetches a single media item by its path
+func GetItemByPath(db *sql.DB, path string) (*MediaItem, error) {
+	query := `SELECT path, description, size, hash, width, height FROM media WHERE path = ?`
+
+	var item MediaItem
+	err := db.QueryRow(query, path).Scan(&item.Path, &item.Description, &item.Size, &item.Hash, &item.Width, &item.Height)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // Item not found
+		}
+		return nil, err
+	}
+
+	// Handle nullable size field
+	if item.Size.Valid {
+		item.FormattedSize = FormatBytes(item.Size.Int64)
+	} else {
+		item.FormattedSize = "Unknown"
+	}
+
+	// Fetch tags for this item
+	tagMap, err := GetTags(db, []string{item.Path})
+	if err != nil {
+		log.Printf("Error fetching tags for item %s: %v", item.Path, err)
+		item.Tags = []MediaTag{} // Empty slice instead of nil
+	} else {
+		if tags, exists := tagMap[item.Path]; exists {
+			item.Tags = tags
+		} else {
+			item.Tags = []MediaTag{} // Empty slice instead of nil
+		}
+	}
+
+	// Check file existence
+	item.Exists = CheckFileExists(item.Path)
+
+	return &item, nil
+}
+
 // getItemsWithExistenceFilter handles pagination when exists conditions are present
 func getItemsWithExistenceFilter(db *sql.DB, baseQuery, joinClause, whereClause string, whereArgs []interface{}, orderBy string, offset, limit int, existsConditions []SearchCondition) ([]MediaItem, bool, error) {
 	const batchSize = 100 // Fetch items in batches
@@ -538,7 +599,7 @@ func getItemsWithExistenceFilter(db *sql.DB, baseQuery, joinClause, whereClause 
 		var batchPaths []string
 		for rows.Next() {
 			var item MediaItem
-			err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash)
+			err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash, &item.Width, &item.Height)
 			if err != nil {
 				rows.Close()
 				return nil, false, err
