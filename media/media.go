@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -163,6 +164,8 @@ func CheckFilesExistConcurrent(paths []string) map[string]bool {
 //	size:>1000000 AND size:<10000000
 //	tag:"landscape" AND category:"nature"
 //	NOT tag:"portrait" AND category:"animals"
+//	exists:true AND tag:"landscape"
+//	exists:false OR size:>1000000
 func parseSearchQuery(query string) (*SearchQuery, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -222,18 +225,26 @@ func parseSearchQuery(query string) (*SearchQuery, error) {
 }
 
 // buildWhereClause converts SearchQuery to SQL WHERE clause and any needed JOINs
-func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool) {
+// Returns: whereClause, sqlArgs, needsTagJoin, existsConditions
+func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCondition) {
 	if sq == nil || len(sq.Conditions) == 0 {
-		return "", nil, false
+		return "", nil, false, nil
 	}
 
 	var clauses []string
 	var args []interface{}
 	var needsTagJoin bool
+	var existsConditions []SearchCondition
 
 	for i, condition := range sq.Conditions {
 		var clause string
 		var columnName string
+
+		// Handle exists conditions separately - don't add to SQL
+		if condition.Column == "exists" {
+			existsConditions = append(existsConditions, condition)
+			continue
+		}
 
 		// Map column names to database columns or handle special cases
 		switch condition.Column {
@@ -314,10 +325,10 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool) {
 	}
 
 	if len(clauses) == 0 {
-		return "", nil, false
+		return "", nil, false, existsConditions
 	}
 
-	return "WHERE " + strings.Join(clauses, " "), args, needsTagJoin
+	return "WHERE " + strings.Join(clauses, " "), args, needsTagJoin, existsConditions
 }
 
 // GetTags fetches all tags for a list of media paths
@@ -365,15 +376,39 @@ func GetTags(db *sql.DB, mediaPaths []string) (map[string][]MediaTag, error) {
 	return tagMap, nil
 }
 
+// evaluateExistsConditions checks if an item matches the exists conditions
+func evaluateExistsConditions(item MediaItem, conditions []SearchCondition) bool {
+	if len(conditions) == 0 {
+		return true // No exists conditions, so item matches
+	}
+
+	for _, condition := range conditions {
+		if condition.Column != "exists" {
+			continue
+		}
+
+		// Parse the expected exists value
+		expectedExists := strings.ToLower(condition.Value) == "true"
+
+		// Apply negation if present
+		if condition.Negate {
+			expectedExists = !expectedExists
+		}
+
+		// Check if item matches the condition
+		if item.Exists != expectedExists {
+			return false // At least one condition doesn't match
+		}
+	}
+
+	return true // All exists conditions match
+}
+
 // GetItems fetches media items from the database with pagination and search
 func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, bool, error) {
 	baseQuery := `SELECT DISTINCT m.path, m.description, m.size, m.hash FROM media m`
 	var joinClause string
 	orderBy := ` ORDER BY m.path`
-	limitClause := ` LIMIT ? OFFSET ?`
-
-	var query string
-	var args []interface{}
 
 	// Parse search query if provided
 	sq, err := parseSearchQuery(searchQuery)
@@ -384,12 +419,22 @@ func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, b
 	}
 
 	// Build WHERE clause and check if we need tag joins
-	whereClause, whereArgs, needsTagJoin := buildWhereClause(sq)
+	whereClause, whereArgs, needsTagJoin, existsConditions := buildWhereClause(sq)
 
 	// Add JOIN if needed for tag/category searches
 	if needsTagJoin {
 		joinClause = ` JOIN media_tag_by_category mtbc ON m.path = mtbc.media_path`
 	}
+
+	// If there are exists conditions, we need to implement existence-aware pagination
+	if len(existsConditions) > 0 {
+		return getItemsWithExistenceFilter(db, baseQuery, joinClause, whereClause, whereArgs, orderBy, offset, limit, existsConditions)
+	}
+
+	// Standard pagination when no exists conditions
+	limitClause := ` LIMIT ? OFFSET ?`
+	var query string
+	var args []interface{}
 
 	// Construct full query
 	if whereClause != "" {
@@ -461,4 +506,415 @@ func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, b
 	}
 
 	return items, hasMore, nil
+}
+
+// getItemsWithExistenceFilter handles pagination when exists conditions are present
+func getItemsWithExistenceFilter(db *sql.DB, baseQuery, joinClause, whereClause string, whereArgs []interface{}, orderBy string, offset, limit int, existsConditions []SearchCondition) ([]MediaItem, bool, error) {
+	const batchSize = 100 // Fetch items in batches
+	var allMatchingItems []MediaItem
+	var dbOffset = 0
+
+	// Keep fetching batches until we have enough matching items or run out of data
+	for len(allMatchingItems) < offset+limit {
+		// Construct batch query
+		limitClause := ` LIMIT ? OFFSET ?`
+		var query string
+		var args []interface{}
+
+		if whereClause != "" {
+			query = baseQuery + joinClause + " " + whereClause + orderBy + limitClause
+			args = append(whereArgs, batchSize, dbOffset)
+		} else {
+			query = baseQuery + orderBy + limitClause
+			args = []interface{}{batchSize, dbOffset}
+		}
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return nil, false, err
+		}
+
+		var batchItems []MediaItem
+		var batchPaths []string
+		for rows.Next() {
+			var item MediaItem
+			err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash)
+			if err != nil {
+				rows.Close()
+				return nil, false, err
+			}
+
+			// Handle nullable size field
+			if item.Size.Valid {
+				item.FormattedSize = FormatBytes(item.Size.Int64)
+			} else {
+				item.FormattedSize = "Unknown"
+			}
+
+			batchItems = append(batchItems, item)
+			batchPaths = append(batchPaths, item.Path)
+		}
+		rows.Close()
+
+		// If no more items from database, break
+		if len(batchItems) == 0 {
+			break
+		}
+
+		// Fetch tags for batch items
+		tagMap, err := GetTags(db, batchPaths)
+		if err != nil {
+			log.Printf("Error fetching media tags: %v", err)
+		} else {
+			for i := range batchItems {
+				if tags, exists := tagMap[batchItems[i].Path]; exists {
+					batchItems[i].Tags = tags
+				} else {
+					batchItems[i].Tags = []MediaTag{}
+				}
+			}
+		}
+
+		// Check file existence for batch items
+		existenceMap := CheckFilesExistConcurrent(batchPaths)
+		for i := range batchItems {
+			if exists, found := existenceMap[batchItems[i].Path]; found {
+				batchItems[i].Exists = exists
+			} else {
+				batchItems[i].Exists = false
+			}
+		}
+
+		// Filter batch items by exists conditions
+		for _, item := range batchItems {
+			if evaluateExistsConditions(item, existsConditions) {
+				allMatchingItems = append(allMatchingItems, item)
+			}
+		}
+
+		// Move to next batch
+		dbOffset += batchSize
+
+		// If we got fewer items than batch size, we've reached the end
+		if len(batchItems) < batchSize {
+			break
+		}
+	}
+
+	// Apply pagination to filtered results
+	totalMatching := len(allMatchingItems)
+
+	// Check if there are more items beyond our current page
+	hasMore := totalMatching > offset+limit
+
+	// Extract the requested page
+	startIdx := offset
+	if startIdx > totalMatching {
+		startIdx = totalMatching
+	}
+
+	endIdx := startIdx + limit
+	if endIdx > totalMatching {
+		endIdx = totalMatching
+	}
+
+	var resultItems []MediaItem
+	if startIdx < endIdx {
+		resultItems = allMatchingItems[startIdx:endIdx]
+	}
+
+	return resultItems, hasMore, nil
+}
+
+// RemovalResult contains the results of a database removal operation
+type RemovalResult struct {
+	MediaItemsRemoved int64
+	TagsRemoved       int64
+	ProcessedPaths    []string
+	Errors            []error
+}
+
+// RemoveItemsFromDB removes media items and their associated tags from the database
+// This function is designed to be reusable across different parts of the application
+func RemoveItemsFromDB(ctx context.Context, db *sql.DB, paths []string) (*RemovalResult, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+
+	if len(paths) == 0 {
+		return &RemovalResult{}, nil
+	}
+
+	// Clean and validate paths
+	var validPaths []string
+	for _, path := range paths {
+		cleanPath := strings.TrimSpace(path)
+		if cleanPath != "" {
+			validPaths = append(validPaths, cleanPath)
+		}
+	}
+
+	if len(validPaths) == 0 {
+		return &RemovalResult{}, nil
+	}
+
+	result := &RemovalResult{
+		ProcessedPaths: validPaths,
+	}
+
+	// Process in batches to avoid SQL parameter limits (SQLite limit is typically 999)
+	const batchSize = 500 // Use 500 to be safe
+	totalMediaRemoved := int64(0)
+	totalTagsRemoved := int64(0)
+
+	for i := 0; i < len(validPaths); i += batchSize {
+		// Check if context was cancelled
+		select {
+		case <-ctx.Done():
+			result.MediaItemsRemoved = totalMediaRemoved
+			result.TagsRemoved = totalTagsRemoved
+			return result, ctx.Err()
+		default:
+		}
+
+		end := i + batchSize
+		if end > len(validPaths) {
+			end = len(validPaths)
+		}
+
+		batch := validPaths[i:end]
+
+		// Start a database transaction for this batch
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to start transaction for batch: %w", err))
+			result.MediaItemsRemoved = totalMediaRemoved
+			result.TagsRemoved = totalTagsRemoved
+			return result, err
+		}
+
+		// Build parameterized query for this batch
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
+		for j, path := range batch {
+			placeholders[j] = "?"
+			args[j] = path
+		}
+
+		// First, remove related records from media_tag_by_category table
+		tagQuery := fmt.Sprintf(`
+			DELETE FROM media_tag_by_category 
+			WHERE media_path IN (%s)
+		`, strings.Join(placeholders, ","))
+
+		tagResult, err := tx.ExecContext(ctx, tagQuery, args...)
+		if err != nil {
+			tx.Rollback()
+			result.Errors = append(result.Errors, fmt.Errorf("failed to remove media tags for batch: %w", err))
+			result.MediaItemsRemoved = totalMediaRemoved
+			result.TagsRemoved = totalTagsRemoved
+			return result, err
+		}
+
+		batchTagsRemoved, _ := tagResult.RowsAffected()
+		totalTagsRemoved += batchTagsRemoved
+
+		// Then remove the main media records
+		mediaQuery := fmt.Sprintf(`
+			DELETE FROM media 
+			WHERE path IN (%s)
+		`, strings.Join(placeholders, ","))
+
+		mediaResult, err := tx.ExecContext(ctx, mediaQuery, args...)
+		if err != nil {
+			tx.Rollback()
+			result.Errors = append(result.Errors, fmt.Errorf("failed to remove media items for batch: %w", err))
+			result.MediaItemsRemoved = totalMediaRemoved
+			result.TagsRemoved = totalTagsRemoved
+			return result, err
+		}
+
+		batchMediaRemoved, _ := mediaResult.RowsAffected()
+		totalMediaRemoved += batchMediaRemoved
+
+		// Commit this batch
+		if err := tx.Commit(); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("failed to commit transaction for batch: %w", err))
+			result.MediaItemsRemoved = totalMediaRemoved
+			result.TagsRemoved = totalTagsRemoved
+			return result, err
+		}
+	}
+
+	result.MediaItemsRemoved = totalMediaRemoved
+	result.TagsRemoved = totalTagsRemoved
+	return result, nil
+}
+
+// GetNonExistentItems retrieves all media items from the database that don't exist in the file system
+// This function processes all items in batches to avoid memory issues with large databases
+func GetNonExistentItems(ctx context.Context, db *sql.DB) ([]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+
+	const batchSize = 1000 // Process items in batches to manage memory
+	var nonExistentPaths []string
+	offset := 0
+
+	for {
+		// Check if context was cancelled
+		select {
+		case <-ctx.Done():
+			return nonExistentPaths, ctx.Err()
+		default:
+		}
+
+		// Get a batch of media items
+		query := `SELECT path FROM media ORDER BY path LIMIT ? OFFSET ?`
+		rows, err := db.QueryContext(ctx, query, batchSize, offset)
+		if err != nil {
+			return nonExistentPaths, fmt.Errorf("failed to query media items: %w", err)
+		}
+
+		var batchPaths []string
+		for rows.Next() {
+			var path string
+			if err := rows.Scan(&path); err != nil {
+				rows.Close()
+				return nonExistentPaths, fmt.Errorf("failed to scan media path: %w", err)
+			}
+			batchPaths = append(batchPaths, path)
+		}
+		rows.Close()
+
+		// If no more items, we're done
+		if len(batchPaths) == 0 {
+			break
+		}
+
+		// Check file existence for this batch
+		existenceMap := CheckFilesExistConcurrent(batchPaths)
+
+		// Collect non-existent paths
+		for path, exists := range existenceMap {
+			if !exists {
+				nonExistentPaths = append(nonExistentPaths, path)
+			}
+		}
+
+		// Move to next batch
+		offset += batchSize
+
+		// If we got fewer items than batch size, we've reached the end
+		if len(batchPaths) < batchSize {
+			break
+		}
+	}
+
+	return nonExistentPaths, nil
+}
+
+// StreamingCleanupNonExistentItems finds and removes non-existent media items in streaming batches
+// This avoids memory issues and provides progress feedback during the operation
+func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressCallback func(found, removed int)) (*RemovalResult, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+
+	const batchSize = 1000      // Process items in batches to manage memory
+	const removeBatchSize = 500 // Remove in smaller batches to avoid SQL limits
+
+	result := &RemovalResult{}
+	offset := 0
+	totalFound := 0
+	totalRemoved := 0
+
+	for {
+		// Check if context was cancelled
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		// Get a batch of media items
+		query := `SELECT path FROM media ORDER BY path LIMIT ? OFFSET ?`
+		rows, err := db.QueryContext(ctx, query, batchSize, offset)
+		if err != nil {
+			return result, fmt.Errorf("failed to query media items: %w", err)
+		}
+
+		var batchPaths []string
+		for rows.Next() {
+			var path string
+			if err := rows.Scan(&path); err != nil {
+				rows.Close()
+				return result, fmt.Errorf("failed to scan media path: %w", err)
+			}
+			batchPaths = append(batchPaths, path)
+		}
+		rows.Close()
+
+		// If no more items, we're done
+		if len(batchPaths) == 0 {
+			break
+		}
+
+		// Check file existence for this batch
+		existenceMap := CheckFilesExistConcurrent(batchPaths)
+
+		// Collect non-existent paths from this batch
+		var nonExistentPaths []string
+		for path, exists := range existenceMap {
+			if !exists {
+				nonExistentPaths = append(nonExistentPaths, path)
+			}
+		}
+
+		totalFound += len(nonExistentPaths)
+
+		// Remove non-existent items if any found
+		if len(nonExistentPaths) > 0 {
+			// Process removals in smaller batches to avoid SQL parameter limits
+			for i := 0; i < len(nonExistentPaths); i += removeBatchSize {
+				end := i + removeBatchSize
+				if end > len(nonExistentPaths) {
+					end = len(nonExistentPaths)
+				}
+
+				removeBatch := nonExistentPaths[i:end]
+
+				// Remove this batch
+				batchResult, err := RemoveItemsFromDB(ctx, db, removeBatch)
+				if err != nil {
+					result.Errors = append(result.Errors, err)
+					return result, err
+				}
+
+				// Accumulate results
+				result.MediaItemsRemoved += batchResult.MediaItemsRemoved
+				result.TagsRemoved += batchResult.TagsRemoved
+				result.ProcessedPaths = append(result.ProcessedPaths, batchResult.ProcessedPaths...)
+				result.Errors = append(result.Errors, batchResult.Errors...)
+
+				totalRemoved += len(removeBatch)
+
+				// Call progress callback if provided
+				if progressCallback != nil {
+					progressCallback(totalFound, totalRemoved)
+				}
+			}
+		}
+
+		// Move to next batch
+		offset += batchSize
+
+		// If we got fewer items than batch size, we've reached the end
+		if len(batchPaths) < batchSize {
+			break
+		}
+	}
+
+	return result, nil
 }

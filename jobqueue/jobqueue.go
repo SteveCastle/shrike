@@ -85,7 +85,7 @@ type Queue struct {
 	Jobs     map[string]*Job
 	JobOrder []string // Keep track of the order in which jobs are added
 	Signal   chan string
-	db       *sql.DB // Database connection for persistence
+	Db       *sql.DB // Database connection for persistence
 }
 
 // NewQueue initializes and returns a new Queue.
@@ -101,7 +101,7 @@ func NewQueueWithDB(db *sql.DB) *Queue {
 	q := &Queue{
 		Jobs:   make(map[string]*Job),
 		Signal: make(chan string, 100),
-		db:     db,
+		Db:     db,
 	}
 
 	// Create the jobs table if it doesn't exist
@@ -135,13 +135,13 @@ func (q *Queue) createJobsTable() error {
 		job_order_position INTEGER
 	)`
 
-	_, err := q.db.Exec(query)
+	_, err := q.Db.Exec(query)
 	return err
 }
 
 // saveJobToDB saves a single job to the database
 func (q *Queue) saveJobToDB(job *Job) error {
-	if q.db == nil {
+	if q.Db == nil {
 		return nil // No database connection
 	}
 
@@ -165,7 +165,7 @@ func (q *Queue) saveJobToDB(job *Job) error {
 		created_at, claimed_at, completed_at, errored_at, job_order_position
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := q.db.Exec(query,
+	_, err := q.Db.Exec(query,
 		job.ID,
 		job.Command,
 		string(argumentsJSON),
@@ -185,7 +185,7 @@ func (q *Queue) saveJobToDB(job *Job) error {
 
 // loadJobsFromDB loads all jobs from the database
 func (q *Queue) loadJobsFromDB() error {
-	if q.db == nil {
+	if q.Db == nil {
 		return nil // No database connection
 	}
 
@@ -195,7 +195,7 @@ func (q *Queue) loadJobsFromDB() error {
 	FROM jobs
 	ORDER BY job_order_position`
 
-	rows, err := q.db.Query(query)
+	rows, err := q.Db.Query(query)
 	if err != nil {
 		return err
 	}
@@ -274,17 +274,17 @@ func (q *Queue) loadJobsFromDB() error {
 
 // removeJobFromDB removes a job from the database
 func (q *Queue) removeJobFromDB(jobID string) error {
-	if q.db == nil {
+	if q.Db == nil {
 		return nil // No database connection
 	}
 
-	_, err := q.db.Exec("DELETE FROM jobs WHERE id = ?", jobID)
+	_, err := q.Db.Exec("DELETE FROM jobs WHERE id = ?", jobID)
 	return err
 }
 
 // SaveAllJobsToDB saves all current jobs to the database
 func (q *Queue) SaveAllJobsToDB() error {
-	if q.db == nil {
+	if q.Db == nil {
 		return nil // No database connection
 	}
 

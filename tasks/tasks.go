@@ -13,6 +13,7 @@ import (
 
 	"github.com/stevecastle/shrike/embedexec"
 	"github.com/stevecastle/shrike/jobqueue"
+	"github.com/stevecastle/shrike/media"
 )
 
 type Task struct {
@@ -33,6 +34,8 @@ func init() {
 	RegisterTask("dce", "dce", executeCommand)
 	RegisterTask("yt-dlp", "yt-dlp", executeCommand)
 	RegisterTask("ffmpeg", "ffmpeg", executeCommand)
+	RegisterTask("remove", "remove", removeFromDB)
+	RegisterTask("cleanup", "CleanUp", cleanUpFn)
 }
 
 func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error) {
@@ -235,6 +238,100 @@ func waitFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		}
 	}
 	// Complete the job
+	q.CompleteJob(j.ID)
+	return nil
+}
+
+func removeFromDB(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	ctx := j.Ctx
+
+	// Parse comma-separated paths from input
+	pathsStr := strings.TrimSpace(j.Input)
+	if pathsStr == "" {
+		q.PushJobStdout(j.ID, "No paths provided for removal")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	paths := strings.Split(pathsStr, ",")
+
+	q.PushJobStdout(j.ID, fmt.Sprintf("Starting removal of media items from database"))
+
+	// Use the abstracted media removal function
+	result, err := media.RemoveItemsFromDB(ctx, q.Db, paths)
+	if err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error removing media items: %v", err))
+		q.ErrorJob(j.ID)
+		return err
+	}
+
+	// Report the results
+	q.PushJobStdout(j.ID, fmt.Sprintf("Processed %d paths", len(result.ProcessedPaths)))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Removed %d tag associations", result.TagsRemoved))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Removed %d media items from database", result.MediaItemsRemoved))
+
+	// Log summary of removal operation
+	if result.MediaItemsRemoved == 0 {
+		q.PushJobStdout(j.ID, "No matching media items found in database")
+	} else {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Successfully removed %d media items and %d tag associations", result.MediaItemsRemoved, result.TagsRemoved))
+	}
+
+	// Check if context was cancelled during operation
+	select {
+	case <-ctx.Done():
+		q.PushJobStdout(j.ID, "Task was canceled")
+		q.ErrorJob(j.ID)
+		return ctx.Err()
+	default:
+	}
+
+	q.CompleteJob(j.ID)
+	return nil
+}
+
+func cleanUpFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	ctx := j.Ctx
+
+	q.PushJobStdout(j.ID, "Starting database cleanup - finding and removing media items that don't exist in file system")
+
+	// Create a progress callback to provide updates
+	progressCallback := func(found, removed int) {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Progress: Found %d orphaned items, removed %d so far", found, removed))
+	}
+
+	// Use the streaming cleanup function to process items in batches
+	result, err := media.StreamingCleanupNonExistentItems(ctx, q.Db, progressCallback)
+	if err != nil {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Error during cleanup: %v", err))
+		q.ErrorJob(j.ID)
+		return err
+	}
+
+	// Report the final results
+	if result.MediaItemsRemoved == 0 {
+		q.PushJobStdout(j.ID, "No orphaned media items found - database is clean!")
+	} else {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Cleanup completed successfully:"))
+		q.PushJobStdout(j.ID, fmt.Sprintf("- Processed %d orphaned media items", len(result.ProcessedPaths)))
+		q.PushJobStdout(j.ID, fmt.Sprintf("- Removed %d media items from database", result.MediaItemsRemoved))
+		q.PushJobStdout(j.ID, fmt.Sprintf("- Removed %d tag associations", result.TagsRemoved))
+	}
+
+	// Check for any accumulated errors
+	if len(result.Errors) > 0 {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Note: %d errors occurred during cleanup (but cleanup continued)", len(result.Errors)))
+	}
+
+	// Final context check
+	select {
+	case <-ctx.Done():
+		q.PushJobStdout(j.ID, "Task was canceled")
+		q.ErrorJob(j.ID)
+		return ctx.Err()
+	default:
+	}
+
 	q.CompleteJob(j.ID)
 	return nil
 }
