@@ -295,6 +295,57 @@ func readJSONBody(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
+// healthHandler provides system health information including stream connections
+func healthHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get stream connection statistics
+		streamStats := stream.GetConnectionStats()
+
+		// Get job queue statistics
+		jobs := deps.Queue.GetJobs()
+		jobStats := map[string]int{
+			"total":       len(jobs),
+			"pending":     0,
+			"in_progress": 0,
+			"completed":   0,
+			"cancelled":   0,
+			"error":       0,
+		}
+
+		for _, job := range jobs {
+			switch job.State {
+			case 0: // StatePending
+				jobStats["pending"]++
+			case 1: // StateInProgress
+				jobStats["in_progress"]++
+			case 2: // StateCompleted
+				jobStats["completed"]++
+			case 3: // StateCancelled
+				jobStats["cancelled"]++
+			case 4: // StateError
+				jobStats["error"]++
+			}
+		}
+
+		health := map[string]interface{}{
+			"status":    "healthy",
+			"timestamp": time.Now().Unix(),
+			"stream":    streamStats,
+			"jobs":      jobStats,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(health); err != nil {
+			log.Printf("Error encoding health response: %v", err)
+		}
+	}
+}
+
 // mediaHandler serves the main media browsing page
 func mediaHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -684,6 +735,7 @@ func main() {
 	mux.HandleFunc("/job/{id}/remove", renderer.ApplyMiddlewares(removeHandler(deps)))
 	mux.HandleFunc("/jobs/clear", renderer.ApplyMiddlewares(clearNonRunningJobsHandler(deps)))
 	mux.HandleFunc("/stream", stream.StreamHandler)
+	mux.HandleFunc("/health", healthHandler(deps))
 	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(deps)))
 	mux.HandleFunc("/media", renderer.ApplyMiddlewares(mediaHandler(deps)))
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
@@ -738,6 +790,12 @@ func onReady() {
 }
 
 func onExit() {
+	log.Println("Shutting down Shrike server...")
+
+	// Shutdown stream connections first
+	log.Println("Shutting down stream connections...")
+	stream.Shutdown()
+
 	// Save all jobs to database before shutting down
 	if deps != nil && deps.Queue != nil {
 		log.Println("Saving job queue to database...")
@@ -748,7 +806,15 @@ func onExit() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Shutdown HTTP server
+	log.Println("Shutting down HTTP server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	} else {
+		log.Println("HTTP server shutdown complete")
+	}
+
+	log.Println("Shrike server shutdown complete")
 }
