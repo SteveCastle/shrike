@@ -9,9 +9,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -338,6 +340,229 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// mediaFileHandler serves individual media files for preview
+func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get the file path from query parameter
+		encodedPath := r.URL.Query().Get("path")
+		if encodedPath == "" {
+			http.Error(w, "Missing path parameter", http.StatusBadRequest)
+			return
+		}
+
+		// URL decode the path
+		filePath, err := url.QueryUnescape(encodedPath)
+		if err != nil {
+			log.Printf("Error decoding path '%s': %v", encodedPath, err)
+			http.Error(w, "Invalid path encoding", http.StatusBadRequest)
+			return
+		}
+
+		// Validate and sanitize the file path
+		filePath = strings.TrimSpace(filePath)
+		if filePath == "" {
+			http.Error(w, "Empty file path", http.StatusBadRequest)
+			return
+		}
+
+		// Check path length (prevent extremely long paths)
+		if len(filePath) > 1000 {
+			http.Error(w, "Path too long", http.StatusBadRequest)
+			return
+		}
+
+		// Basic security: prevent directory traversal attacks
+		// Note: This is a basic check - for production, consider more robust validation
+		if strings.Contains(filePath, "..") {
+			log.Printf("Potential directory traversal attempt: %s", filePath)
+			http.Error(w, "Invalid path", http.StatusBadRequest)
+			return
+		}
+
+		// For remote URLs, proxy the request
+		if strings.HasPrefix(filePath, "http://") || strings.HasPrefix(filePath, "https://") {
+			proxyRemoteMedia(w, r, filePath)
+			return
+		}
+
+		// Handle local files
+		// Clean the path for consistency
+		filePath = filepath.Clean(filePath)
+
+		// Check if file exists
+		if !media.CheckFileExists(filePath) {
+			log.Printf("File not found: %s", filePath)
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		// Get file info for additional validation
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			log.Printf("Error getting file info for '%s': %v", filePath, err)
+			http.Error(w, "Cannot access file", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if it's actually a file (not a directory)
+		if fileInfo.IsDir() {
+			http.Error(w, "Path is a directory", http.StatusBadRequest)
+			return
+		}
+
+		// Check file size (prevent serving extremely large files for preview)
+		const maxFileSize = 100 * 1024 * 1024 // 100MB limit
+		if fileInfo.Size() > maxFileSize {
+			http.Error(w, "File too large for preview", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Set appropriate content type based on file extension
+		ext := strings.ToLower(filepath.Ext(filePath))
+		contentType := getContentType(ext)
+		w.Header().Set("Content-Type", contentType)
+
+		// Set cache headers for better performance
+		w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+		etag := fmt.Sprintf(`"%s-%d-%d"`, filepath.Base(filePath), fileInfo.Size(), fileInfo.ModTime().Unix())
+		w.Header().Set("ETag", etag)
+
+		// Check If-None-Match header for caching
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+
+		// Set content length
+		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+
+		// Serve the file
+		http.ServeFile(w, r, filePath)
+	}
+}
+
+// proxyRemoteMedia proxies remote media files with timeout and size limits
+func proxyRemoteMedia(w http.ResponseWriter, r *http.Request, remoteURL string) {
+	// Create a client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create request to remote URL
+	req, err := http.NewRequest("GET", remoteURL, nil)
+	if err != nil {
+		log.Printf("Error creating request for remote URL '%s': %v", remoteURL, err)
+		http.Error(w, "Invalid remote URL", http.StatusBadRequest)
+		return
+	}
+
+	// Set User-Agent to identify our requests
+	req.Header.Set("User-Agent", "Shrike-Media-Browser/1.0")
+
+	// Make the request
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error fetching remote media '%s': %v", remoteURL, err)
+		http.Error(w, "Failed to fetch remote media", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Remote media returned status %d for URL: %s", resp.StatusCode, remoteURL)
+		http.Error(w, "Remote media not accessible", resp.StatusCode)
+		return
+	}
+
+	// Check content length if provided
+	if contentLengthStr := resp.Header.Get("Content-Length"); contentLengthStr != "" {
+		if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
+			const maxFileSize = 100 * 1024 * 1024 // 100MB limit
+			if contentLength > maxFileSize {
+				http.Error(w, "Remote file too large for preview", http.StatusRequestEntityTooLarge)
+				return
+			}
+		}
+	}
+
+	// Copy headers from remote response
+	for key, values := range resp.Header {
+		if key == "Content-Type" || key == "Content-Length" || key == "Cache-Control" || key == "ETag" {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+	}
+
+	// If no cache headers from remote, set our own
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "public, max-age=1800") // 30 minutes for remote files
+	}
+
+	// Copy the response body with size limit
+	const maxFileSize = 100 * 1024 * 1024 // 100MB limit
+	limitedReader := &io.LimitedReader{R: resp.Body, N: maxFileSize}
+
+	written, err := io.Copy(w, limitedReader)
+	if err != nil {
+		log.Printf("Error copying remote media response: %v", err)
+		return
+	}
+
+	// Check if we hit the size limit
+	if limitedReader.N <= 0 && written == maxFileSize {
+		log.Printf("Remote file too large, truncated at %d bytes: %s", maxFileSize, remoteURL)
+	}
+}
+
+// getContentType returns the appropriate MIME type for a file extension
+func getContentType(ext string) string {
+	switch ext {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".svg":
+		return "image/svg+xml"
+	case ".tiff":
+		return "image/tiff"
+	case ".ico":
+		return "image/x-icon"
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".ogg":
+		return "video/ogg"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mov":
+		return "video/quicktime"
+	case ".wmv":
+		return "video/x-ms-wmv"
+	case ".flv":
+		return "video/x-flv"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".m4v":
+		return "video/x-m4v"
+	default:
+		return "application/octet-stream"
+	}
+}
+
 func ParseCommand(input string) []string {
 	var (
 		result   []string
@@ -402,6 +627,7 @@ func main() {
 	mux.HandleFunc("/create", renderer.ApplyMiddlewares(createJobHandler(deps)))
 	mux.HandleFunc("/media", renderer.ApplyMiddlewares(mediaHandler(deps)))
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
+	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",

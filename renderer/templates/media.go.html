@@ -24,7 +24,7 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 3fr 2fr 100px 1.5fr 2fr;
+        grid-template-columns: 3fr 2fr 100px 80px 1.5fr 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
         align-items: start;
@@ -57,6 +57,12 @@
         color: #61dafb;
         word-break: break-all;
         white-space: normal;
+        cursor: pointer;
+        transition: color 0.2s ease;
+      }
+
+      .media-cell.path:hover {
+        color: #4fa8d8;
       }
 
       .media-cell.description {
@@ -69,6 +75,12 @@
         color: #98c379;
         text-align: right;
         justify-content: flex-end;
+      }
+
+      .media-cell.exists {
+        text-align: center;
+        justify-content: center;
+        font-size: 1.2em;
       }
 
       .media-cell.hash {
@@ -127,6 +139,89 @@
         font-style: italic;
       }
 
+      /* Media Preview Tooltip */
+      .media-preview {
+        position: fixed;
+        display: none;
+        z-index: 1000;
+        background: linear-gradient(135deg, #2d2d2d, #1e1e1e);
+        border: 2px solid #61dafb;
+        border-radius: 12px;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.7),
+          0 5px 15px rgba(97, 218, 251, 0.2);
+        max-width: 400px;
+        max-height: 300px;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        opacity: 0;
+        transform: translateY(10px) scale(0.95);
+        pointer-events: none;
+      }
+
+      .media-preview.show {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .media-preview-header {
+        background: linear-gradient(90deg, #61dafb, #4fa8d8);
+        color: #000;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+        margin: 0;
+      }
+
+      .media-preview-content {
+        position: relative;
+        width: 100%;
+        height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+
+      .media-preview img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 0;
+      }
+
+      .media-preview video {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 0;
+      }
+
+      .media-preview-loading {
+        color: #61dafb;
+        font-size: 14px;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .media-preview-error {
+        color: #e06c75;
+        font-size: 12px;
+        text-align: center;
+        padding: 20px;
+        line-height: 1.4;
+      }
+
+      .media-preview-footer {
+        background: rgba(30, 30, 30, 0.95);
+        color: #aaa;
+        padding: 6px 12px;
+        font-size: 10px;
+        text-align: center;
+        border-top: 1px solid #333;
+      }
+
       /* Responsive adjustments */
       @media screen and (max-width: 800px) {
         .media-header,
@@ -160,6 +255,15 @@
           margin: 1px 1px;
           font-size: 0.75em;
           padding: 1px 3px;
+        }
+
+        .media-preview {
+          max-width: 90vw;
+          max-height: 60vh;
+        }
+
+        .media-preview-content {
+          height: 150px;
         }
       }
     </style>
@@ -258,18 +362,30 @@
           <div class="media-cell">Path</div>
           <div class="media-cell">Description</div>
           <div class="media-cell">Size</div>
+          <div class="media-cell">Exists</div>
           <div class="media-cell">Hash</div>
           <div class="media-cell">Tags</div>
         </div>
         <div id="media-list" class="table-body">
           {{range .MediaItems}}
           <div class="media-row">
-            <div class="media-cell path" data-label="Path">{{.Path}}</div>
+            <div
+              class="media-cell path"
+              data-label="Path"
+              data-media-path="{{htmlAttr .Path}}"
+              onmouseenter="showMediaPreview(event, this.dataset.mediaPath)"
+              onmouseleave="hideMediaPreview()"
+            >
+              {{.Path}}
+            </div>
             <div class="media-cell description" data-label="Description">
               {{if .Description.Valid}}{{.Description.String}}{{else}}-{{end}}
             </div>
             <div class="media-cell size" data-label="Size">
               {{.FormattedSize}}
+            </div>
+            <div class="media-cell exists" data-label="Exists">
+              {{if .Exists}}✅{{else}}❌{{end}}
             </div>
             <div class="media-cell hash" data-label="Hash">
               {{if .Hash.Valid}}{{.Hash.String}}{{else}}-{{end}}
@@ -293,11 +409,243 @@
       </div>
     </div>
 
+    <!-- Media Preview Tooltip -->
+    <div id="media-preview" class="media-preview">
+      <div class="media-preview-header" id="preview-header">Media Preview</div>
+      <div class="media-preview-content" id="preview-content">
+        <div class="media-preview-loading" id="preview-loading">Loading...</div>
+      </div>
+      <div class="media-preview-footer" id="preview-footer">
+        Hover to preview media
+      </div>
+    </div>
+
     <script>
       let currentOffset = {{.Offset}};
       let isLoading = false;
       let hasMoreItems = {{.HasMore}};
       let currentSearchQuery = "{{.SearchQuery}}";
+
+      // Media preview functionality
+      let previewTimeout;
+      let hideTimeout;
+      const previewDelay = 500; // ms
+      const hideDelay = 300; // ms
+
+      function isImageFile(path) {
+        if (!path || typeof path !== 'string') return false;
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.ico'];
+        try {
+          const lastDotIndex = path.lastIndexOf('.');
+          if (lastDotIndex === -1 || lastDotIndex === path.length - 1) return false;
+          const ext = path.toLowerCase().substring(lastDotIndex);
+          return imageExtensions.includes(ext);
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function isVideoFile(path) {
+        if (!path || typeof path !== 'string') return false;
+        const videoExtensions = ['.mp4', '.webm', '.ogg', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.m4v'];
+        try {
+          const lastDotIndex = path.lastIndexOf('.');
+          if (lastDotIndex === -1 || lastDotIndex === path.length - 1) return false;
+          const ext = path.toLowerCase().substring(lastDotIndex);
+          return videoExtensions.includes(ext);
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function isRemoteUrl(path) {
+        return path.startsWith('http://') || path.startsWith('https://');
+      }
+
+      function getMediaUrl(path) {
+        // Validate path
+        if (!path || typeof path !== 'string') {
+          throw new Error('Invalid path');
+        }
+
+        // Trim and validate path length
+        path = path.trim();
+        if (path.length === 0) {
+          throw new Error('Empty path');
+        }
+        if (path.length > 1000) {
+          throw new Error('Path too long');
+        }
+
+        if (isRemoteUrl(path)) {
+          return path;
+        }
+
+        // For local files, properly encode the path
+        try {
+          return `/media/file?path=${encodeURIComponent(path)}`;
+        } catch (e) {
+          throw new Error('Failed to encode path');
+        }
+      }
+
+      function showMediaPreview(event, mediaPath) {
+        clearTimeout(hideTimeout);
+
+        // Validate media path
+        if (!mediaPath || typeof mediaPath !== 'string' || mediaPath.trim() === '') {
+          return;
+        }
+
+        // Trim and sanitize the path
+        mediaPath = mediaPath.trim();
+
+        if (!isImageFile(mediaPath) && !isVideoFile(mediaPath)) {
+          return;
+        }
+
+        const preview = document.getElementById('media-preview');
+        const header = document.getElementById('preview-header');
+        const content = document.getElementById('preview-content');
+        const footer = document.getElementById('preview-footer');
+
+        previewTimeout = setTimeout(() => {
+          // Position the preview near the mouse
+          const rect = event.target.getBoundingClientRect();
+
+          let left = event.clientX + 10;
+          let top = event.clientY - 10;
+
+          // Adjust if preview would go off screen
+          if (left + 400 > window.innerWidth) {
+            left = event.clientX - 410;
+          }
+          if (top + 300 > window.innerHeight) {
+            top = event.clientY - 310;
+          }
+
+          preview.style.left = Math.max(10, left) + 'px';
+          preview.style.top = Math.max(10, top) + 'px';
+
+          // Show preview
+          preview.style.display = 'block';
+          setTimeout(() => preview.classList.add('show'), 10);
+
+          // Set header with safe file name extraction
+          const fileName = extractFileName(mediaPath);
+          header.textContent = fileName;
+
+                    // Show loading
+          content.innerHTML = '<div class="media-preview-loading">Loading...</div>';
+
+          let mediaUrl;
+          try {
+            mediaUrl = getMediaUrl(mediaPath);
+          } catch (e) {
+            content.innerHTML = `<div class="media-preview-error">Invalid path<br>${escapeHtml(e.message)}</div>`;
+            footer.textContent = 'Path error';
+            return;
+          }
+
+          if (isImageFile(mediaPath)) {
+            const img = new Image();
+            img.onload = function() {
+              content.innerHTML = '';
+              content.appendChild(img);
+              footer.textContent = `Image • ${img.naturalWidth}×${img.naturalHeight}`;
+            };
+            img.onerror = function() {
+              content.innerHTML = '<div class="media-preview-error">Failed to load image<br>Check if file exists and is accessible</div>';
+              footer.textContent = 'Error loading media';
+            };
+
+            // Set a timeout for loading to prevent hanging
+            setTimeout(() => {
+              if (!img.complete) {
+                img.src = ''; // Cancel loading
+                content.innerHTML = '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
+                footer.textContent = 'Loading timeout';
+              }
+            }, 10000); // 10 second timeout
+
+            img.src = mediaUrl;
+          } else if (isVideoFile(mediaPath)) {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.autoplay = true;
+            video.loop = true;
+            video.controls = false;
+            video.preload = 'metadata';
+
+            video.onloadedmetadata = function() {
+              content.innerHTML = '';
+              content.appendChild(video);
+              const duration = Math.round(video.duration);
+              footer.textContent = `Video • ${video.videoWidth}×${video.videoHeight} • ${duration}s`;
+            };
+
+            video.onerror = function() {
+              content.innerHTML = '<div class="media-preview-error">Failed to load video<br>Check if file exists and is accessible</div>';
+              footer.textContent = 'Error loading media';
+            };
+
+            // Set a timeout for loading
+            setTimeout(() => {
+              if (video.readyState === 0) {
+                video.src = ''; // Cancel loading
+                content.innerHTML = '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
+                footer.textContent = 'Loading timeout';
+              }
+            }, 15000); // 15 second timeout for videos
+
+            video.src = mediaUrl;
+          }
+        }, previewDelay);
+      }
+
+      // Helper function to safely extract filename from path
+      function extractFileName(path) {
+        try {
+          // Handle both forward and backward slashes
+          const parts = path.split(/[/\\]/);
+          const fileName = parts[parts.length - 1];
+          // Limit filename length for display
+          return fileName.length > 50 ? fileName.substring(0, 47) + '...' : fileName;
+        } catch (e) {
+          return 'Unknown File';
+        }
+      }
+
+      function hideMediaPreview() {
+        clearTimeout(previewTimeout);
+
+        hideTimeout = setTimeout(() => {
+          const preview = document.getElementById('media-preview');
+          preview.classList.remove('show');
+          setTimeout(() => {
+            preview.style.display = 'none';
+            // Clean up any media elements to stop playback and free memory
+            const content = document.getElementById('preview-content');
+            const videos = content.querySelectorAll('video');
+            videos.forEach(video => {
+              video.pause();
+              video.src = '';
+              video.load(); // Reset video element
+            });
+            const images = content.querySelectorAll('img');
+            images.forEach(img => {
+              img.src = ''; // Cancel any pending image loads
+            });
+          }, 300);
+        }, hideDelay);
+      }
+
+      // Add event listeners to preview element to prevent hiding when hovering over it
+      document.getElementById('media-preview').addEventListener('mouseenter', () => {
+        clearTimeout(hideTimeout);
+      });
+
+      document.getElementById('media-preview').addEventListener('mouseleave', hideMediaPreview);
 
       function formatBytes(bytes) {
         if (bytes === 0) return '0 B';
@@ -340,10 +688,11 @@
               }
 
               row.innerHTML = `
-                <div class="media-cell path" data-label="Path">${escapeHtml(item.path)}</div>
-                <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '')}</div>
+                <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(item.path)}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(item.path)}</div>
+                <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '-')}</div>
                 <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
-                <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '')}</div>
+                <div class="media-cell exists" data-label="Exists">${item.exists ? '✅' : '❌'}</div>
+                <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '-')}</div>
                 <div class="media-cell tags" data-label="Tags">${tagsHtml}</div>
               `;
               mediaList.appendChild(row);
@@ -366,8 +715,11 @@
       }
 
       function escapeHtml(text) {
+        if (text == null || text === undefined) {
+          return '';
+        }
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text);
         return div.innerHTML;
       }
 

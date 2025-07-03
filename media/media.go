@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // MediaItem represents a row from the media table
@@ -18,6 +20,7 @@ type MediaItem struct {
 	Hash          sql.NullString `json:"hash"`
 	FormattedSize string         `json:"-"`
 	Tags          []MediaTag     `json:"tags"`
+	Exists        bool           `json:"exists"`
 }
 
 // MediaTag represents a tag with its category
@@ -102,6 +105,54 @@ func FormatBytes(bytes int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f %s", b, sizes[i])
+}
+
+// CheckFileExists checks if a file exists at the given path
+// Returns true if the file exists, false otherwise
+func CheckFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+// FileExistenceResult holds the result of a file existence check
+type FileExistenceResult struct {
+	Path   string
+	Exists bool
+}
+
+// CheckFilesExistConcurrent checks file existence for multiple paths concurrently
+// This is more efficient than checking files sequentially when dealing with many files
+func CheckFilesExistConcurrent(paths []string) map[string]bool {
+	if len(paths) == 0 {
+		return make(map[string]bool)
+	}
+
+	results := make(chan FileExistenceResult, len(paths))
+	var wg sync.WaitGroup
+
+	// Launch goroutines to check file existence
+	for _, path := range paths {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			exists := CheckFileExists(p)
+			results <- FileExistenceResult{Path: p, Exists: exists}
+		}(path)
+	}
+
+	// Close results channel when all goroutines are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	existenceMap := make(map[string]bool)
+	for result := range results {
+		existenceMap[result.Path] = result.Exists
+	}
+
+	return existenceMap
 }
 
 // parseSearchQuery parses a search query string into structured conditions
@@ -394,6 +445,18 @@ func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, b
 			} else {
 				items[i].Tags = []MediaTag{} // Empty slice instead of nil
 			}
+		}
+	}
+
+	// Check file existence for all media items concurrently
+	existenceMap := CheckFilesExistConcurrent(mediaPaths)
+
+	// Populate existence information for each item
+	for i := range items {
+		if exists, found := existenceMap[items[i].Path]; found {
+			items[i].Exists = exists
+		} else {
+			items[i].Exists = false // Default to false if check failed
 		}
 	}
 

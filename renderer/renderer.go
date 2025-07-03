@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"embed"
+	"html"
 	"html/template"
 	"log"
 	"net/http"
@@ -29,11 +30,17 @@ func formatTime(t time.Time) string {
 	return t.Format("Jan 2, 2006 15:04:05")
 }
 
+// htmlAttr safely escapes a string for use in HTML attributes
+func htmlAttr(s string) string {
+	return html.EscapeString(s)
+}
+
 // initTemplates initializes the templates. Called only once.
 func initTemplates() *template.Template {
 	tmpl, err := template.New("").
 		Funcs(template.FuncMap{
 			"formatTime": formatTime,
+			"htmlAttr":   htmlAttr,
 		}).
 		ParseFS(templatesFS, templateGlob)
 	if err != nil {
