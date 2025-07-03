@@ -264,7 +264,7 @@ func waitFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 func removeFromDB(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	ctx := j.Ctx
 
-	// Parse comma-separated paths from input
+	// Parse newline-separated paths from input
 	pathsStr := strings.TrimSpace(j.Input)
 	if pathsStr == "" {
 		q.PushJobStdout(j.ID, "No paths provided for removal")
@@ -272,7 +272,14 @@ func removeFromDB(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return nil
 	}
 
-	paths := strings.Split(pathsStr, ",")
+	rawPaths := strings.Split(pathsStr, "\n")
+	var paths []string
+	for _, path := range rawPaths {
+		cleanPath := strings.TrimSpace(path)
+		if cleanPath != "" {
+			paths = append(paths, cleanPath)
+		}
+	}
 
 	q.PushJobStdout(j.ID, fmt.Sprintf("Starting removal of media items from database"))
 
@@ -550,16 +557,11 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			return err
 		}
 	} else {
-		// Parse input as file paths (support both comma and newline separation)
+		// Parse input as file paths (newline separated)
 		input := strings.TrimSpace(j.Input)
 
-		// Try newline separation first, then comma separation
-		var rawPaths []string
-		if strings.Contains(input, "\n") {
-			rawPaths = strings.Split(input, "\n")
-		} else {
-			rawPaths = strings.Split(input, ",")
-		}
+		// Split on newlines
+		rawPaths := strings.Split(input, "\n")
 
 		// Clean and validate file paths
 		for _, rawPath := range rawPaths {
@@ -1394,7 +1396,7 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return fmt.Errorf("no target directory specified")
 	}
 
-	// Parse comma-separated paths from input with better handling
+	// Parse newline-separated paths from input with better handling
 	pathsStr := strings.TrimSpace(j.Input)
 	if pathsStr == "" {
 		q.PushJobStdout(j.ID, "No paths provided for moving")
@@ -1402,8 +1404,8 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return nil
 	}
 
-	// Split by comma and clean each path more thoroughly
-	rawPaths := strings.Split(pathsStr, ",")
+	// Split by newline and clean each path more thoroughly
+	rawPaths := strings.Split(pathsStr, "\n")
 	var cleanedPaths []string
 
 	for _, rawPath := range rawPaths {

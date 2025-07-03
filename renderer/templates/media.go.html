@@ -796,7 +796,7 @@
         if (selectedTask === 'remove') {
           command = 'remove';
           args = [];
-          input = `"${Array.from(selectedItems).join(',')}"`;
+          input = Array.from(selectedItems).join('\n');
                 } else if (selectedTask === 'move') {
           command = 'move';
           args = [];
@@ -822,8 +822,8 @@
             args.push('--prefix', pathPrefix);
           }
 
-          // Create comma-separated list of files with no spaces, wrapped in quotes
-          input = `"${Array.from(selectedItems).join(',')}"`;
+          // Create newline-separated list of files
+          input = Array.from(selectedItems).join('\n');
         } else if (selectedTask.startsWith('metadata-')) {
           command = 'metadata';
           args = [];
@@ -862,9 +862,16 @@
         executeButton.disabled = true;
         executeButton.textContent = 'Executing...';
 
-        // Create the job
+        // Create the job - properly quote the input to treat it as a single argument
+        let formattedInput = '';
+        if (input) {
+          // Escape any quotes in the input and wrap the entire input in quotes
+          const escapedInput = input.replace(/"/g, '\\"');
+          formattedInput = `"${escapedInput}"`;
+        }
+
         const jobData = {
-          input: `${command} ${args.join(' ')} ${input}`
+          input: `${command} ${args.join(' ')} ${formattedInput}`
         };
 
         fetch('/create', {
@@ -1338,7 +1345,7 @@
         const input = job.input;
         if (!input) return;
 
-        const paths = input.split(',').map(path => path.trim());
+        const paths = input.split('\n').map(path => path.trim()).filter(path => path);
 
         // Remove rows from the current view
         paths.forEach(path => {
@@ -1364,8 +1371,8 @@
         const input = job.input;
         if (!input) return;
 
-        // Parse paths from input (could be newline or comma separated)
-        const paths = input.split(/[\n,]/).map(path => path.trim()).filter(path => path);
+        // Parse paths from input (newline separated)
+        const paths = input.split('\n').map(path => path.trim()).filter(path => path);
 
         // Refresh affected rows by fetching updated data
         refreshMediaRows(paths);
