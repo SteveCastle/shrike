@@ -407,6 +407,26 @@
         .bulk-actions-form button {
           width: 100%;
         }
+
+        /* Metadata options responsive */
+        #metadata-options div[style*="display: flex"] {
+          flex-direction: column !important;
+          align-items: stretch !important;
+        }
+
+        #metadata-options div[style*="display: flex"] label {
+          min-width: auto !important;
+        }
+
+        #metadata-options select,
+        #metadata-options input[type="text"] {
+          width: 100% !important;
+          min-width: auto !important;
+        }
+
+        #metadata-options div[style*="gap: 15px"] {
+          gap: 10px !important;
+        }
       }
     </style>
   </head>
@@ -511,23 +531,141 @@
             <option value="">Select task...</option>
             <option value="remove">Remove from Database</option>
             <option value="move">Move Files</option>
-            <optgroup label="Generate Metadata">
-              <option value="metadata-all">All Metadata Types</option>
-              <option value="metadata-description">Description Only</option>
-              <option value="metadata-transcript">Transcript Only</option>
-              <option value="metadata-hash">Hash Only</option>
-              <option value="metadata-dimensions">Dimensions Only</option>
-            </optgroup>
+            <option value="metadata">Generate Metadata</option>
           </select>
-          <div id="metadata-options" style="display: none">
-            <label style="color: #aaa; font-size: 0.9em">
+          <div
+            id="metadata-options"
+            style="
+              display: none;
+              flex-direction: column;
+              gap: 10px;
+              margin-top: 10px;
+            "
+          >
+            <div style="color: #aaa; font-size: 0.9em; font-weight: bold">
+              Metadata Types:
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 15px;
+                flex-wrap: wrap;
+                margin-left: 10px;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="metadata-description"
+                  style="margin-right: 5px"
+                  checked
+                />
+                Description
+              </label>
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="metadata-transcript"
+                  style="margin-right: 5px"
+                />
+                Transcript
+              </label>
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="metadata-hash"
+                  style="margin-right: 5px"
+                  checked
+                />
+                Hash
+              </label>
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="metadata-dimensions"
+                  style="margin-right: 5px"
+                  checked
+                />
+                Dimensions
+              </label>
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                >Apply Scope:</label
+              >
+              <select
+                id="apply-scope-select"
+                style="
+                  padding: 6px 10px;
+                  background-color: #1e1e1e;
+                  border: 1px solid #555;
+                  color: #d4d4d4;
+                  border-radius: 4px;
+                  font-family: monospace;
+                  min-width: 120px;
+                "
+              >
+                <option value="all">All selected files</option>
+                <option value="new">New files only</option>
+              </select>
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                >AI Model:</label
+              >
               <input
-                type="checkbox"
-                id="overwrite-checkbox"
-                style="margin-right: 5px"
+                type="text"
+                id="ollama-model"
+                value="llama3.2-vision"
+                placeholder="e.g., llama3.2-vision"
+                style="
+                  padding: 6px 10px;
+                  background-color: #1e1e1e;
+                  border: 1px solid #555;
+                  color: #d4d4d4;
+                  border-radius: 4px;
+                  font-family: monospace;
+                  flex: 1;
+                  min-width: 200px;
+                "
               />
-              Overwrite existing
-            </label>
+            </div>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+              "
+            >
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="overwrite-checkbox"
+                  style="margin-right: 5px"
+                />
+                Overwrite existing metadata
+              </label>
+            </div>
+            <div style="font-size: 0.8em; color: #888; line-height: 1.3">
+              <strong>Note:</strong> Description generation requires Ollama with
+              a vision model. Transcript generation requires faster-whisper-xxl
+              for video files. Hash and dimensions work for all media types.
+            </div>
           </div>
           <div
             id="move-options"
@@ -762,8 +900,8 @@
         moveOptions.style.display = 'none';
 
         // Show relevant options
-        if (this.value.startsWith('metadata-')) {
-          metadataOptions.style.display = 'block';
+        if (this.value === 'metadata') {
+          metadataOptions.style.display = 'flex';
         } else if (this.value === 'move') {
           moveOptions.style.display = 'flex';
         }
@@ -824,29 +962,48 @@
 
           // Create newline-separated list of files
           input = Array.from(selectedItems).join('\n');
-        } else if (selectedTask.startsWith('metadata-')) {
+        } else if (selectedTask === 'metadata') {
           command = 'metadata';
           args = [];
 
-          // Add metadata type argument
-          if (selectedTask === 'metadata-description') {
-            args.push('--type', 'description');
-          } else if (selectedTask === 'metadata-transcript') {
-            args.push('--type', 'transcript');
-          } else if (selectedTask === 'metadata-hash') {
-            args.push('--type', 'hash');
-          } else if (selectedTask === 'metadata-dimensions') {
-            args.push('--type', 'dimensions');
+          // Get selected metadata types
+          const metadataTypes = [];
+          if (document.getElementById('metadata-description').checked) {
+            metadataTypes.push('description');
           }
-          // For 'metadata-all', don't specify type to use default (all types)
+          if (document.getElementById('metadata-transcript').checked) {
+            metadataTypes.push('transcript');
+          }
+          if (document.getElementById('metadata-hash').checked) {
+            metadataTypes.push('hash');
+          }
+          if (document.getElementById('metadata-dimensions').checked) {
+            metadataTypes.push('dimensions');
+          }
+
+          // Validate that at least one metadata type is selected
+          if (metadataTypes.length === 0) {
+            alert('Please select at least one metadata type to generate');
+            return;
+          }
+
+          // Add metadata types as comma-separated list
+          args.push('--type', metadataTypes.join(','));
+
+          // Add apply scope
+          const applyScope = document.getElementById('apply-scope-select').value;
+          args.push('--apply', applyScope);
+
+          // Add AI model
+          const ollamaModel = document.getElementById('ollama-model').value.trim();
+          if (ollamaModel) {
+            args.push('--model', ollamaModel);
+          }
 
           // Add overwrite flag if checked
           if (overwriteCheckbox.checked) {
             args.push('--overwrite');
           }
-
-          // Set apply scope to all since we're explicitly selecting files
-          args.push('--apply', 'all');
 
           input = Array.from(selectedItems).join('\n');
         }

@@ -184,6 +184,7 @@ func CheckFilesExistConcurrent(paths []string) map[string]bool {
 //	NOT tag:"portrait" AND category:"animals"
 //	exists:true AND tag:"landscape"
 //	exists:false OR size:>1000000
+//	pathdir:"/some/directory/" (searches only in directory, not subdirectories)
 func parseSearchQuery(query string) (*SearchQuery, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -211,24 +212,47 @@ func parseSearchQuery(query string) (*SearchQuery, error) {
 			Value:  strings.Trim(match[3], `"`),
 		}
 
-		// Determine operator
-		if strings.HasPrefix(condition.Value, ">") {
-			condition.Operator = ">"
-			condition.Value = condition.Value[1:]
-		} else if strings.HasPrefix(condition.Value, "<") {
-			condition.Operator = "<"
-			condition.Value = condition.Value[1:]
-		} else if strings.HasPrefix(condition.Value, ">=") {
-			condition.Operator = ">="
-			condition.Value = condition.Value[2:]
-		} else if strings.HasPrefix(condition.Value, "<=") {
-			condition.Operator = "<="
-			condition.Value = condition.Value[2:]
-		} else if strings.Contains(condition.Value, "*") || strings.Contains(condition.Value, "%") {
-			condition.Operator = "LIKE"
-			condition.Value = strings.ReplaceAll(condition.Value, "*", "%")
+		// Special handling for pathdir operator - always use LIKE for directory matching
+		if condition.Column == "pathdir" {
+			condition.Operator = "PATHDIR"
+			// Detect and normalize path separator
+			pathSep := "/"
+			if strings.Contains(condition.Value, "\\") {
+				pathSep = "\\"
+			}
+
+			// Ensure the path ends with the correct separator
+			if !strings.HasSuffix(condition.Value, pathSep) {
+				condition.Value += pathSep
+			}
+
+			// Store the separator in the value for later use
+			// We'll use a special marker to indicate the separator
+			if pathSep == "\\" {
+				condition.Value = "WIN:" + condition.Value
+			} else {
+				condition.Value = "UNIX:" + condition.Value
+			}
 		} else {
-			condition.Operator = "="
+			// Determine operator for other columns
+			if strings.HasPrefix(condition.Value, ">") {
+				condition.Operator = ">"
+				condition.Value = condition.Value[1:]
+			} else if strings.HasPrefix(condition.Value, "<") {
+				condition.Operator = "<"
+				condition.Value = condition.Value[1:]
+			} else if strings.HasPrefix(condition.Value, ">=") {
+				condition.Operator = ">="
+				condition.Value = condition.Value[2:]
+			} else if strings.HasPrefix(condition.Value, "<=") {
+				condition.Operator = "<="
+				condition.Value = condition.Value[2:]
+			} else if strings.Contains(condition.Value, "*") || strings.Contains(condition.Value, "%") {
+				condition.Operator = "LIKE"
+				condition.Value = strings.ReplaceAll(condition.Value, "*", "%")
+			} else {
+				condition.Operator = "="
+			}
 		}
 
 		sq.Conditions = append(sq.Conditions, condition)
@@ -268,6 +292,33 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 		switch condition.Column {
 		case "path":
 			columnName = "m.path"
+		case "pathdir":
+			// Special handling for pathdir - search in directory but not subdirectories
+			// Extract path separator from prefixed format
+			var pathSep string
+			var actualPath string
+
+			if strings.HasPrefix(condition.Value, "WIN:") {
+				pathSep = "\\"
+				actualPath = condition.Value[4:] // Remove "WIN:" prefix
+			} else if strings.HasPrefix(condition.Value, "UNIX:") {
+				pathSep = "/"
+				actualPath = condition.Value[5:] // Remove "UNIX:" prefix
+			} else {
+				// Fallback - shouldn't happen with proper parsing
+				pathSep = "/"
+				actualPath = condition.Value
+			}
+
+			if condition.Negate {
+				// For NOT pathdir, exclude items in the specified directory
+				clause = fmt.Sprintf("NOT (m.path LIKE ? AND m.path NOT LIKE ?)")
+				args = append(args, actualPath+"%", actualPath+"%"+pathSep+"%")
+			} else {
+				// For pathdir, include items in the specified directory but not subdirectories
+				clause = fmt.Sprintf("(m.path LIKE ? AND m.path NOT LIKE ?)")
+				args = append(args, actualPath+"%", actualPath+"%"+pathSep+"%")
+			}
 		case "description":
 			columnName = "m.description"
 		case "size":
@@ -308,7 +359,7 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 			continue // Skip unknown columns
 		}
 
-		// Handle regular media table columns
+		// Handle regular media table columns (excluding pathdir which is handled above)
 		if condition.Column == "path" || condition.Column == "description" || condition.Column == "size" || condition.Column == "hash" || condition.Column == "width" || condition.Column == "height" {
 			// Handle nullable columns
 			if condition.Column == "description" || condition.Column == "hash" || condition.Column == "width" || condition.Column == "height" {
