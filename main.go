@@ -87,7 +87,7 @@ func init() {
 // Database initialization
 // -----------------------------------------------------------------------------
 func initDB() (*sql.DB, error) {
-	dbPath := `C:\Users\steph\AppData\Roaming\Lowkey Media Viewer\dream-x.sqlite`
+	dbPath := `C:\Users\steph\AppData\Roaming\Lowkey Media Viewer\dream.sqlite`
 
 	// Ensure the directory exists
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
