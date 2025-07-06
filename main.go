@@ -86,22 +86,56 @@ func init() {
 // -----------------------------------------------------------------------------
 // Database initialization
 // -----------------------------------------------------------------------------
+
+// Config represents the structure of the configuration file
+type Config struct {
+	DBPath string `json:"dbPath"`
+	// Add other fields as needed, but we only need dbPath for now
+}
+
 func initDB() (*sql.DB, error) {
-	dbPath := `C:\Users\steph\AppData\Roaming\Lowkey Media Viewer\dream.sqlite`
+	// Get the AppData directory dynamically for the current Windows user
+	appDataDir := os.Getenv("APPDATA")
+	if appDataDir == "" {
+		return nil, fmt.Errorf("APPDATA environment variable not found")
+	}
+
+	// Construct the path to the config file
+	configPath := filepath.Join(appDataDir, "Lowkey Media Viewer", "config.json")
+
+	// Read the config file
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file at %s: %v", configPath, err)
+	}
+
+	// Parse the JSON config
+	var config Config
+	if err := json.Unmarshal(configData, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config JSON: %v", err)
+	}
+
+	// Validate that dbPath is set
+	if config.DBPath == "" {
+		return nil, fmt.Errorf("dbPath not found in config file")
+	}
+
+	dbPath := config.DBPath
+	log.Printf("Using database path from config: %s", dbPath)
 
 	// Ensure the directory exists
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create database directory: %v", err)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
 
 	// Test the connection
 	if err := db.Ping(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
 
 	log.Printf("Connected to SQLite database at: %s", dbPath)
