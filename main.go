@@ -332,6 +332,19 @@ func readJSONBody(r *http.Request, v any) error {
 // healthHandler provides system health information including stream connections
 func healthHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Set fully permissive CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		// Handle preflight OPTIONS request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		if r.Method != http.MethodGet {
 			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
 			return

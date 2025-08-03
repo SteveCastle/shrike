@@ -531,11 +531,12 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		"transcript":  true,
 		"hash":        true,
 		"dimensions":  true,
+		"autotag":     true,
 	}
 
 	for _, mType := range metadataTypes {
 		if !validTypes[strings.ToLower(mType)] {
-			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: unknown metadata type '%s' - valid types are: description, transcript, hash, dimensions", mType))
+			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: unknown metadata type '%s' - valid types are: description, transcript, hash, dimensions, autotag", mType))
 		}
 	}
 
@@ -641,6 +642,8 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			err = generateHashes(ctx, q, j.ID, filesToProcess, overwrite)
 		case "dimensions":
 			err = generateDimensions(ctx, q, j.ID, filesToProcess, overwrite)
+		case "autotag":
+			err = generateAutoTags(ctx, q, j.ID, filesToProcess, overwrite, ollamaModel)
 		default:
 			q.PushJobStdout(j.ID, fmt.Sprintf("Skipping unknown metadata type: %s", mType))
 			continue
@@ -1662,4 +1665,411 @@ func updateMediaPathInDatabase(db *sql.DB, oldPath, newPath string) error {
 	}
 
 	return nil
+}
+
+// getAllAvailableTags fetches all unique tags and their categories from the database
+func getAllAvailableTags(db *sql.DB) ([]TagInfo, error) {
+	query := `
+		SELECT DISTINCT tag_label, category_label 
+		FROM media_tag_by_category 
+		ORDER BY category_label, tag_label
+	`
+	
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query available tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []TagInfo
+	for rows.Next() {
+		var tag TagInfo
+		if err := rows.Scan(&tag.Label, &tag.Category); err != nil {
+			return nil, fmt.Errorf("failed to scan tag row: %w", err)
+		}
+		tags = append(tags, tag)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over tag rows: %w", err)
+	}
+
+	return tags, nil
+}
+
+// TagInfo represents a tag with its category for the auto-tagging system
+type TagInfo struct {
+	Label    string
+	Category string
+}
+
+// generateAutoTags generates automatic tags for media files using vision model
+func generateAutoTags(ctx context.Context, q *jobqueue.Queue, jobID string, filePaths []string, overwrite bool, model string) error {
+	// First, get all available tags from the database
+	availableTags, err := getAllAvailableTags(q.Db)
+	if err != nil {
+		return fmt.Errorf("failed to fetch available tags: %w", err)
+	}
+
+	if len(availableTags) == 0 {
+		q.PushJobStdout(jobID, "No tags available in database for auto-tagging")
+		return nil
+	}
+
+	q.PushJobStdout(jobID, fmt.Sprintf("Found %d available tags in database", len(availableTags)))
+
+	processed := 0
+	for _, filePath := range filePaths {
+		// Check if context was cancelled
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// Check if file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			q.PushJobStdout(jobID, fmt.Sprintf("Warning: file does not exist: %s", filePath))
+			continue
+		}
+
+		// Skip if not an image file (auto-tagging currently only works for images)
+		ext := strings.ToLower(filepath.Ext(filePath))
+		isImage := false
+		switch ext {
+		case ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic":
+			isImage = true
+		}
+
+		if !isImage {
+			continue
+		}
+
+		// Check if tags already exist and we're not overwriting
+		if !overwrite {
+			existingTags, err := getExistingTagsForFile(q.Db, filePath)
+			if err != nil {
+				q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to check existing tags for %s: %v", filePath, err))
+				continue
+			}
+			if len(existingTags) > 0 {
+				continue
+			}
+		}
+
+		// Generate auto tags using vision model
+		selectedTags, err := generateAutoTagsWithVision(filePath, availableTags, model)
+		if err != nil {
+			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to auto-tag %s: %v", filePath, err))
+			continue
+		}
+
+		if len(selectedTags) == 0 {
+			q.PushJobStdout(jobID, fmt.Sprintf("No tags selected for: %s", filePath))
+			continue
+		}
+
+		// Remove existing tags if overwriting
+		if overwrite {
+			err = removeExistingTagsForFile(q.Db, filePath)
+			if err != nil {
+				q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to remove existing tags for %s: %v", filePath, err))
+				continue
+			}
+		}
+
+		// Insert the selected tags into the database
+		err = insertTagsForFile(q.Db, filePath, selectedTags)
+		if err != nil {
+			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to insert tags for %s: %v", filePath, err))
+			continue
+		}
+
+		processed++
+		tagLabels := make([]string, len(selectedTags))
+		for i, tag := range selectedTags {
+			tagLabels[i] = tag.Label
+		}
+		q.PushJobStdout(jobID, fmt.Sprintf("Auto-tagged %s with: %s", filepath.Base(filePath), strings.Join(tagLabels, ", ")))
+
+		if processed%10 == 0 || processed == len(filePaths) {
+			q.PushJobStdout(jobID, fmt.Sprintf("Auto-tag progress: %d image files processed", processed))
+		}
+	}
+
+	q.PushJobStdout(jobID, fmt.Sprintf("Generated auto-tags for %d image files", processed))
+	return nil
+}
+
+// getExistingTagsForFile checks if a file already has tags
+func getExistingTagsForFile(db *sql.DB, filePath string) ([]TagInfo, error) {
+	query := `
+		SELECT tag_label, category_label 
+		FROM media_tag_by_category 
+		WHERE media_path = ?
+	`
+	
+	rows, err := db.Query(query, filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []TagInfo
+	for rows.Next() {
+		var tag TagInfo
+		if err := rows.Scan(&tag.Label, &tag.Category); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+
+	return tags, nil
+}
+
+// removeExistingTagsForFile removes all existing tags for a file
+func removeExistingTagsForFile(db *sql.DB, filePath string) error {
+	query := `DELETE FROM media_tag_by_category WHERE media_path = ?`
+	_, err := db.Exec(query, filePath)
+	return err
+}
+
+// insertTagsForFile inserts tags for a file into the database
+func insertTagsForFile(db *sql.DB, filePath string, tags []TagInfo) error {
+	stmt := `INSERT INTO media_tag_by_category (media_path, tag_label, category_label) VALUES (?, ?, ?)`
+	
+	for _, tag := range tags {
+		_, err := db.Exec(stmt, filePath, tag.Label, tag.Category)
+		if err != nil {
+			return fmt.Errorf("failed to insert tag %s/%s: %w", tag.Category, tag.Label, err)
+		}
+	}
+	
+	return nil
+}
+
+// generateAutoTagsWithVision uses the vision model to select appropriate tags from available options
+func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
+	ext := strings.ToLower(filepath.Ext(mediaPath))
+	var tempImagePath string
+	var cleanupPaths []string
+
+	// Handle different file types (similar to description function)
+	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".webp" {
+		tempImagePath = mediaPath
+	} else {
+		// For videos, take a screenshot using ffmpeg
+		screenshotPath := filepath.Join(os.TempDir(), "autotag_screenshot_"+filepath.Base(mediaPath)+".jpg")
+		cleanupPaths = append(cleanupPaths, screenshotPath)
+
+		ffmpegCmd := exec.Command("ffmpeg",
+			"-ss", "1",
+			"-i", mediaPath,
+			"-frames:v", "1",
+			"-q:v", "2",
+			"-y",
+			screenshotPath,
+		)
+		if err := ffmpegCmd.Run(); err != nil {
+			return nil, fmt.Errorf("ffmpeg screenshot failed: %w", err)
+		}
+		tempImagePath = screenshotPath
+	}
+
+	// Resize image if needed
+	resizedPath, err := resizeImageIfNeeded(tempImagePath)
+	if err != nil {
+		for _, p := range cleanupPaths {
+			_ = os.Remove(p)
+		}
+		return nil, fmt.Errorf("failed to resize image: %w", err)
+	}
+	if resizedPath != tempImagePath {
+		cleanupPaths = append(cleanupPaths, resizedPath)
+	}
+
+	// Create the prompt with available tags
+	selectedTags, err := callOllamaVisionForTags(resizedPath, availableTags, model)
+	if err != nil {
+		for _, p := range cleanupPaths {
+			_ = os.Remove(p)
+		}
+		return nil, fmt.Errorf("ollama auto-tag call failed: %w", err)
+	}
+
+	// Cleanup temp files
+	for _, p := range cleanupPaths {
+		_ = os.Remove(p)
+	}
+	
+	return selectedTags, nil
+}
+
+// callOllamaVisionForTags calls Ollama API to select appropriate tags for an image
+func callOllamaVisionForTags(imagePath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
+	// Read image and convert to base64
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		return nil, fmt.Errorf("could not read image for Ollama: %w", err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(data)
+
+	// Build the tag options string for the prompt
+	var tagOptions strings.Builder
+	tagOptions.WriteString("Available tags by category:\n")
+	
+	// Group tags by category for better organization
+	categoryMap := make(map[string][]string)
+	for _, tag := range availableTags {
+		categoryMap[tag.Category] = append(categoryMap[tag.Category], tag.Label)
+	}
+	
+	for category, labels := range categoryMap {
+		tagOptions.WriteString(fmt.Sprintf("- %s: %s\n", category, strings.Join(labels, ", ")))
+	}
+
+	// Create the prompt
+	prompt := fmt.Sprintf(`Please analyze this image and select the most appropriate tags from the following list. Return your response as a JSON array containing objects with "label" and "category" fields.
+
+%s
+
+Look at the image carefully and select only the tags that accurately describe what you see. Focus on:
+- Objects and subjects visible in the image
+- Colors and visual characteristics
+- Composition and style elements
+- Setting or environment
+- Actions or activities if present
+
+Return your response in this exact JSON format:
+[{"label": "tag_name", "category": "category_name"}, ...]
+
+Only select tags that clearly apply to this image. If no tags from the list match what you see, return an empty array [].`, tagOptions.String())
+
+	// Log the final prompt for debugging
+	log.Printf("AutoTag Vision Prompt for %s:\n%s", imagePath, prompt)
+
+	// Build JSON payload for Ollama API
+	requestJSON := fmt.Sprintf(`{
+		"model": "%s",
+		"stream": false,
+		"prompt": %s,
+		"images": ["%s"]
+	}`, model, strconv.Quote(prompt), b64)
+
+	// Create request
+	req, err := http.NewRequest("POST", "http://localhost:11434/api/generate", strings.NewReader(requestJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ollama error: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Read response
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body failed: %w", err)
+	}
+
+	// Parse JSON response
+	var response struct {
+		Response string `json:"response"`
+	}
+	if err := json.Unmarshal(respData, &response); err != nil {
+		return nil, fmt.Errorf("could not unmarshal Ollama response: %w", err)
+	}
+
+	// Log the raw response for debugging
+	log.Printf("AutoTag Vision Raw Response for %s:\n%s", imagePath, response.Response)
+
+	// Parse the tags from the response
+	selectedTags, err := parseTagsFromResponse(response.Response, availableTags)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tags from response: %w", err)
+	}
+
+	// Log the parsed tags for debugging
+	tagNames := make([]string, len(selectedTags))
+	for i, tag := range selectedTags {
+		tagNames[i] = fmt.Sprintf("%s/%s", tag.Category, tag.Label)
+	}
+	log.Printf("AutoTag Vision Parsed Tags for %s: [%s]", imagePath, strings.Join(tagNames, ", "))
+
+	return selectedTags, nil
+}
+
+// parseTagsFromResponse extracts valid tags from the Ollama response
+func parseTagsFromResponse(response string, availableTags []TagInfo) ([]TagInfo, error) {
+	// Try to find JSON array in the response
+	response = strings.TrimSpace(response)
+	
+	// Find the JSON array in the response
+	start := strings.Index(response, "[")
+	end := strings.LastIndex(response, "]")
+	
+	if start == -1 || end == -1 || start >= end {
+		log.Printf("AutoTag Parse: No valid JSON array found in response (start=%d, end=%d)", start, end)
+		return []TagInfo{}, nil // Return empty if no valid JSON found
+	}
+	
+	jsonStr := response[start:end+1]
+	log.Printf("AutoTag Parse: Extracted JSON string: %s", jsonStr)
+	
+	// Parse the JSON array
+	var rawTags []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &rawTags); err != nil {
+		log.Printf("AutoTag Parse: JSON unmarshal failed: %v", err)
+		return []TagInfo{}, nil // Return empty if JSON parsing fails
+	}
+	
+	log.Printf("AutoTag Parse: Successfully parsed %d raw tags from JSON", len(rawTags))
+	
+	// Create a map of available tags for quick lookup
+	tagMap := make(map[string]TagInfo)
+	for _, tag := range availableTags {
+		key := strings.ToLower(tag.Category) + ":" + strings.ToLower(tag.Label)
+		tagMap[key] = tag
+	}
+	
+	// Validate and filter the selected tags
+	var selectedTags []TagInfo
+	for i, rawTag := range rawTags {
+		labelInterface, hasLabel := rawTag["label"]
+		categoryInterface, hasCategory := rawTag["category"]
+		
+		if !hasLabel || !hasCategory {
+			log.Printf("AutoTag Parse: Raw tag %d missing label or category fields", i)
+			continue
+		}
+		
+		label, labelOk := labelInterface.(string)
+		category, categoryOk := categoryInterface.(string)
+		
+		if !labelOk || !categoryOk {
+			log.Printf("AutoTag Parse: Raw tag %d has non-string label or category", i)
+			continue
+		}
+		
+		// Check if this tag exists in our available tags
+		key := strings.ToLower(category) + ":" + strings.ToLower(label)
+		if validTag, exists := tagMap[key]; exists {
+			selectedTags = append(selectedTags, validTag)
+			log.Printf("AutoTag Parse: Validated tag %d: %s/%s", i, category, label)
+		} else {
+			log.Printf("AutoTag Parse: Tag %d not found in available tags: %s/%s (key: %s)", i, category, label, key)
+		}
+	}
+	
+	return selectedTags, nil
 }

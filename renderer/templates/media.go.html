@@ -588,6 +588,14 @@
                 />
                 Dimensions
               </label>
+              <label style="color: #aaa; font-size: 0.9em">
+                <input
+                  type="checkbox"
+                  id="metadata-autotag"
+                  style="margin-right: 5px"
+                />
+                Auto Tag
+              </label>
             </div>
             <div
               style="
@@ -979,6 +987,9 @@
           }
           if (document.getElementById('metadata-dimensions').checked) {
             metadataTypes.push('dimensions');
+          }
+          if (document.getElementById('metadata-autotag').checked) {
+            metadataTypes.push('autotag');
           }
 
           // Validate that at least one metadata type is selected
