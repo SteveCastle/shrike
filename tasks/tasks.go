@@ -55,6 +55,7 @@ func init() {
 	RegisterTask("ingest", "Ingest Media Files", ingestTask)
 	RegisterTask("metadata", "Generate Metadata", metadataTask)
 	RegisterTask("move", "Move Media Files", moveTask)
+	RegisterTask("autotag", "Auto Tag (ONNX)", autotagTask)
 }
 
 func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error) {
@@ -1674,7 +1675,7 @@ func getAllAvailableTags(db *sql.DB) ([]TagInfo, error) {
 		FROM media_tag_by_category 
 		ORDER BY category_label, tag_label
 	`
-	
+
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query available tags: %w", err)
@@ -1808,7 +1809,7 @@ func getExistingTagsForFile(db *sql.DB, filePath string) ([]TagInfo, error) {
 		FROM media_tag_by_category 
 		WHERE media_path = ?
 	`
-	
+
 	rows, err := db.Query(query, filePath)
 	if err != nil {
 		return nil, err
@@ -1836,15 +1837,194 @@ func removeExistingTagsForFile(db *sql.DB, filePath string) error {
 
 // insertTagsForFile inserts tags for a file into the database
 func insertTagsForFile(db *sql.DB, filePath string, tags []TagInfo) error {
+	// Ensure tag definitions exist in tags table first
+	if err := ensureTagsExist(db, tags); err != nil {
+		return err
+	}
 	stmt := `INSERT INTO media_tag_by_category (media_path, tag_label, category_label) VALUES (?, ?, ?)`
-	
+
 	for _, tag := range tags {
 		_, err := db.Exec(stmt, filePath, tag.Label, tag.Category)
 		if err != nil {
 			return fmt.Errorf("failed to insert tag %s/%s: %w", tag.Category, tag.Label, err)
 		}
 	}
-	
+
+	return nil
+}
+
+// ensureTagsExist inserts any missing tags into the tag table.
+// The tag table is expected to have columns: label, category_label
+func ensureTagsExist(db *sql.DB, tags []TagInfo) error {
+	if len(tags) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("ensureTagsExist: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	insertSQL := `INSERT OR IGNORE INTO tag (label, category_label) VALUES (?, ?)`
+	for _, t := range tags {
+		if strings.TrimSpace(t.Label) == "" {
+			continue
+		}
+		if _, err := tx.Exec(insertSQL, t.Label, t.Category); err != nil {
+			return fmt.Errorf("ensureTagsExist: insert %s/%s: %w", t.Category, t.Label, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("ensureTagsExist: commit: %w", err)
+	}
+	return nil
+}
+
+// autotagTask runs onnxtag.exe and writes suggested tag assignments
+func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	ctx := j.Ctx
+	raw := strings.TrimSpace(j.Input)
+	if raw == "" {
+		q.PushJobStdout(j.ID, "autotag: no image path provided in job input")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	// Ensure the Suggested category exists
+	if err := ensureCategoryExists(q.Db, "Suggested", 0); err != nil {
+		q.PushJobStdout(j.ID, "autotag: failed to ensure category: "+err.Error())
+		q.ErrorJob(j.ID)
+		return err
+	}
+
+	// Accept comma-separated or newline-separated list of files
+	// Normalize into a slice of paths
+	var paths []string
+	// First split on newlines
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Then split each line by comma
+		for _, part := range strings.Split(line, ",") {
+			p := strings.TrimSpace(part)
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		q.PushJobStdout(j.ID, "autotag: no valid paths parsed from input")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	// Process sequentially
+	for idx, imagePath := range paths {
+		select {
+		case <-ctx.Done():
+			q.PushJobStdout(j.ID, "autotag: task canceled")
+			q.ErrorJob(j.ID)
+			return ctx.Err()
+		default:
+		}
+
+		// Build command arguments
+		args := []string{
+			`--labels=I:\\selected_tags.csv`,
+			`--config=I:\\config.json`,
+			`--model=I:\\eva02-large-tagger-v3.onnx`,
+			`--ort=I:\\onnxruntime.dll`,
+			`--image=` + imagePath,
+		}
+
+		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] tagging %s", idx+1, len(paths), imagePath))
+
+		// Launch onnxtag.exe
+		cmd := exec.CommandContext(ctx, "onnxtag.exe", args...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to get stdout pipe: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to get stderr pipe: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to start onnxtag.exe: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+
+		// Collect stdout lines as tags (one per line: either "tag" or "tag:score")
+		var tags []string
+		scan := bufio.NewScanner(stdout)
+		for scan.Scan() {
+			line := strings.TrimSpace(scan.Text())
+			if line != "" {
+				tags = append(tags, line)
+				_ = q.PushJobStdout(j.ID, "autotag: "+line)
+			}
+		}
+		_ = cmd.Wait()
+
+		// Drain stderr to job stdout for visibility
+		go func() {
+			s := bufio.NewScanner(stderr)
+			for s.Scan() {
+				_ = q.PushJobStdout(j.ID, "autotag stderr: "+s.Text())
+			}
+		}()
+
+		if len(tags) == 0 {
+			q.PushJobStdout(j.ID, "autotag: no tags returned")
+			continue
+		}
+
+		// Convert to TagInfo with Suggested category
+		var tagInfos []TagInfo
+		for _, t := range tags {
+			// accept "name" or "name:score"; take left side as name
+			name := t
+			if pos := strings.LastIndex(t, ":"); pos > 0 {
+				name = strings.TrimSpace(t[:pos])
+			}
+			if name == "" {
+				continue
+			}
+			tagInfos = append(tagInfos, TagInfo{Label: name, Category: "Suggested"})
+		}
+
+		// Insert tag assignments
+		if err := insertTagsForFile(q.Db, imagePath, tagInfos); err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to insert tags: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+
+		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: wrote %d Suggested tags for %s", len(tagInfos), imagePath))
+	}
+
+	q.CompleteJob(j.ID)
+	return nil
+}
+
+// ensureCategoryExists inserts the category if it doesn't already exist.
+// The category table is expected to have columns: label, weight
+func ensureCategoryExists(db *sql.DB, label string, weight int) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return errors.New("ensureCategoryExists: empty label")
+	}
+	_, err := db.Exec(`INSERT OR IGNORE INTO category (label, weight) VALUES (?, ?)`, label, weight)
+	if err != nil {
+		return fmt.Errorf("ensureCategoryExists: insert %s: %w", label, err)
+	}
 	return nil
 }
 
@@ -1901,7 +2081,7 @@ func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model
 	for _, p := range cleanupPaths {
 		_ = os.Remove(p)
 	}
-	
+
 	return selectedTags, nil
 }
 
@@ -1917,13 +2097,13 @@ func callOllamaVisionForTags(imagePath string, availableTags []TagInfo, model st
 	// Build the tag options string for the prompt
 	var tagOptions strings.Builder
 	tagOptions.WriteString("Available tags by category:\n")
-	
+
 	// Group tags by category for better organization
 	categoryMap := make(map[string][]string)
 	for _, tag := range availableTags {
 		categoryMap[tag.Category] = append(categoryMap[tag.Category], tag.Label)
 	}
-	
+
 	for category, labels := range categoryMap {
 		tagOptions.WriteString(fmt.Sprintf("- %s: %s\n", category, strings.Join(labels, ", ")))
 	}
@@ -2013,54 +2193,54 @@ Only select tags that clearly apply to this image. If no tags from the list matc
 func parseTagsFromResponse(response string, availableTags []TagInfo) ([]TagInfo, error) {
 	// Try to find JSON array in the response
 	response = strings.TrimSpace(response)
-	
+
 	// Find the JSON array in the response
 	start := strings.Index(response, "[")
 	end := strings.LastIndex(response, "]")
-	
+
 	if start == -1 || end == -1 || start >= end {
 		log.Printf("AutoTag Parse: No valid JSON array found in response (start=%d, end=%d)", start, end)
 		return []TagInfo{}, nil // Return empty if no valid JSON found
 	}
-	
-	jsonStr := response[start:end+1]
+
+	jsonStr := response[start : end+1]
 	log.Printf("AutoTag Parse: Extracted JSON string: %s", jsonStr)
-	
+
 	// Parse the JSON array
 	var rawTags []map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &rawTags); err != nil {
 		log.Printf("AutoTag Parse: JSON unmarshal failed: %v", err)
 		return []TagInfo{}, nil // Return empty if JSON parsing fails
 	}
-	
+
 	log.Printf("AutoTag Parse: Successfully parsed %d raw tags from JSON", len(rawTags))
-	
+
 	// Create a map of available tags for quick lookup
 	tagMap := make(map[string]TagInfo)
 	for _, tag := range availableTags {
 		key := strings.ToLower(tag.Category) + ":" + strings.ToLower(tag.Label)
 		tagMap[key] = tag
 	}
-	
+
 	// Validate and filter the selected tags
 	var selectedTags []TagInfo
 	for i, rawTag := range rawTags {
 		labelInterface, hasLabel := rawTag["label"]
 		categoryInterface, hasCategory := rawTag["category"]
-		
+
 		if !hasLabel || !hasCategory {
 			log.Printf("AutoTag Parse: Raw tag %d missing label or category fields", i)
 			continue
 		}
-		
+
 		label, labelOk := labelInterface.(string)
 		category, categoryOk := categoryInterface.(string)
-		
+
 		if !labelOk || !categoryOk {
 			log.Printf("AutoTag Parse: Raw tag %d has non-string label or category", i)
 			continue
 		}
-		
+
 		// Check if this tag exists in our available tags
 		key := strings.ToLower(category) + ":" + strings.ToLower(label)
 		if validTag, exists := tagMap[key]; exists {
@@ -2070,6 +2250,6 @@ func parseTagsFromResponse(response string, availableTags []TagInfo) ([]TagInfo,
 			log.Printf("AutoTag Parse: Tag %d not found in available tags: %s/%s (key: %s)", i, category, label, key)
 		}
 	}
-	
+
 	return selectedTags, nil
 }

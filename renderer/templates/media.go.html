@@ -24,7 +24,7 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 40px 3fr 2fr 80px 80px 100px 80px 1.5fr 2fr;
+        grid-template-columns: 40px 3fr 2fr 80px 80px 100px 80px 1.5fr 140px 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
         align-items: start;
@@ -532,6 +532,7 @@
             <option value="remove">Remove from Database</option>
             <option value="move">Move Files</option>
             <option value="metadata">Generate Metadata</option>
+            <option value="autotag">Auto Tag (ONNX)</option>
           </select>
           <div
             id="metadata-options"
@@ -772,6 +773,7 @@
           <div class="media-cell">Size</div>
           <div class="media-cell">Exists</div>
           <div class="media-cell">Hash</div>
+          <div class="media-cell">Job</div>
           <div class="media-cell">Tags</div>
         </div>
         <div id="media-list" class="table-body">
@@ -812,6 +814,11 @@
             <div class="media-cell hash" data-label="Hash">
               {{if .Hash.Valid}}{{.Hash.String}}{{else}}-{{end}}
             </div>
+            <div
+              class="media-cell job"
+              data-label="Job"
+              data-media-path-job="{{htmlAttr .Path}}"
+            ></div>
             <div class="media-cell tags" data-label="Tags">
               {{if .Tags}} {{range .Tags}}
               <span class="tag-item">
@@ -843,9 +850,12 @@
     </div>
 
     <script>
-      let currentOffset = {{.Offset}};
+      let currentOffset = Number("{{.Offset}}") || 0;
       let isLoading = false;
-      let hasMoreItems = {{.HasMore}};
+      let hasMoreItems =
+        "{{.HasMore}}" === "true" ||
+        "{{.HasMore}}" === "1" ||
+        "{{.HasMore}}" === "True";
       let currentSearchQuery = "{{.SearchQuery}}";
 
       // Selection management
@@ -853,22 +863,24 @@
 
       function updateSelection() {
         selectedItems.clear();
-        const checkboxes = document.querySelectorAll('.media-checkbox:checked');
-        checkboxes.forEach(cb => selectedItems.add(cb.value));
+        const checkboxes = document.querySelectorAll(".media-checkbox:checked");
+        checkboxes.forEach((cb) => selectedItems.add(cb.value));
 
         const count = selectedItems.size;
-        document.getElementById('selected-count').textContent = `${count} selected`;
+        document.getElementById(
+          "selected-count"
+        ).textContent = `${count} selected`;
 
-        const bulkActions = document.getElementById('bulk-actions');
+        const bulkActions = document.getElementById("bulk-actions");
         if (count > 0) {
-          bulkActions.classList.add('show');
+          bulkActions.classList.add("show");
         } else {
-          bulkActions.classList.remove('show');
+          bulkActions.classList.remove("show");
         }
 
         // Update select-all checkbox state
-        const allCheckboxes = document.querySelectorAll('.media-checkbox');
-        const selectAllCheckbox = document.getElementById('select-all');
+        const allCheckboxes = document.querySelectorAll(".media-checkbox");
+        const selectAllCheckbox = document.getElementById("select-all");
         if (count === 0) {
           selectAllCheckbox.indeterminate = false;
           selectAllCheckbox.checked = false;
@@ -882,16 +894,18 @@
       }
 
       function toggleSelectAll(checkbox) {
-        const mediaCheckboxes = document.querySelectorAll('.media-checkbox');
-        mediaCheckboxes.forEach(cb => {
+        const mediaCheckboxes = document.querySelectorAll(".media-checkbox");
+        mediaCheckboxes.forEach((cb) => {
           cb.checked = checkbox.checked;
         });
         updateSelection();
       }
 
       function clearSelection() {
-        const checkboxes = document.querySelectorAll('.media-checkbox, #select-all');
-        checkboxes.forEach(cb => {
+        const checkboxes = document.querySelectorAll(
+          ".media-checkbox, #select-all"
+        );
+        checkboxes.forEach((cb) => {
           cb.checked = false;
           cb.indeterminate = false;
         });
@@ -899,178 +913,183 @@
       }
 
       // Show/hide options based on task selection
-      document.getElementById('task-select').addEventListener('change', function() {
-        const metadataOptions = document.getElementById('metadata-options');
-        const moveOptions = document.getElementById('move-options');
+      document
+        .getElementById("task-select")
+        .addEventListener("change", function () {
+          const metadataOptions = document.getElementById("metadata-options");
+          const moveOptions = document.getElementById("move-options");
 
-        // Hide all options first
-        metadataOptions.style.display = 'none';
-        moveOptions.style.display = 'none';
+          // Hide all options first
+          metadataOptions.style.display = "none";
+          moveOptions.style.display = "none";
 
-        // Show relevant options
-        if (this.value === 'metadata') {
-          metadataOptions.style.display = 'flex';
-        } else if (this.value === 'move') {
-          moveOptions.style.display = 'flex';
-        }
-      });
-
-
+          // Show relevant options
+          if (this.value === "metadata") {
+            metadataOptions.style.display = "flex";
+          } else if (this.value === "move") {
+            moveOptions.style.display = "flex";
+          }
+        });
 
       // Handle bulk actions form submission
-      document.getElementById('bulk-actions-form').addEventListener('submit', function(e) {
-        e.preventDefault();
+      document
+        .getElementById("bulk-actions-form")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
 
-        const taskSelect = document.getElementById('task-select');
-        const selectedTask = taskSelect.value;
-        const overwriteCheckbox = document.getElementById('overwrite-checkbox');
-        const executeButton = document.getElementById('execute-button');
+          const taskSelect = document.getElementById("task-select");
+          const selectedTask = taskSelect.value;
+          const overwriteCheckbox =
+            document.getElementById("overwrite-checkbox");
+          const executeButton = document.getElementById("execute-button");
 
-        if (!selectedTask) {
-          alert('Please select a task to execute');
-          return;
-        }
-
-        if (selectedItems.size === 0) {
-          alert('Please select at least one media item');
-          return;
-        }
-
-        // Prepare the command based on selected task
-        let command, args = [], input;
-
-        if (selectedTask === 'remove') {
-          command = 'remove';
-          args = [];
-          input = Array.from(selectedItems).join('\n');
-                } else if (selectedTask === 'move') {
-          command = 'move';
-          args = [];
-
-          // Get target directory from text input
-          const targetDirectoryInput = document.getElementById('target-directory-path');
-          const pathPrefixInput = document.getElementById('path-prefix');
-
-          const targetPath = targetDirectoryInput.value.trim();
-
-          // Validate target path
-          if (!targetPath) {
-            alert('Please enter a target directory path');
+          if (!selectedTask) {
+            alert("Please select a task to execute");
             return;
           }
 
-          // Add target directory as first argument (no flag)
-          args.push(targetPath);
-
-          // Add path prefix if specified
-          const pathPrefix = pathPrefixInput.value.trim();
-          if (pathPrefix) {
-            args.push('--prefix', pathPrefix);
-          }
-
-          // Create newline-separated list of files
-          input = Array.from(selectedItems).join('\n');
-        } else if (selectedTask === 'metadata') {
-          command = 'metadata';
-          args = [];
-
-          // Get selected metadata types
-          const metadataTypes = [];
-          if (document.getElementById('metadata-description').checked) {
-            metadataTypes.push('description');
-          }
-          if (document.getElementById('metadata-transcript').checked) {
-            metadataTypes.push('transcript');
-          }
-          if (document.getElementById('metadata-hash').checked) {
-            metadataTypes.push('hash');
-          }
-          if (document.getElementById('metadata-dimensions').checked) {
-            metadataTypes.push('dimensions');
-          }
-          if (document.getElementById('metadata-autotag').checked) {
-            metadataTypes.push('autotag');
-          }
-
-          // Validate that at least one metadata type is selected
-          if (metadataTypes.length === 0) {
-            alert('Please select at least one metadata type to generate');
+          if (selectedItems.size === 0) {
+            alert("Please select at least one media item");
             return;
           }
 
-          // Add metadata types as comma-separated list
-          args.push('--type', metadataTypes.join(','));
+          // Prepare the command based on selected task
+          let command,
+            args = [],
+            input;
 
-          // Add apply scope
-          const applyScope = document.getElementById('apply-scope-select').value;
-          args.push('--apply', applyScope);
+          if (selectedTask === "remove") {
+            command = "remove";
+            args = [];
+            input = Array.from(selectedItems).join("\n");
+          } else if (selectedTask === "move") {
+            command = "move";
+            args = [];
 
-          // Add AI model
-          const ollamaModel = document.getElementById('ollama-model').value.trim();
-          if (ollamaModel) {
-            args.push('--model', ollamaModel);
+            // Get target directory from text input
+            const targetDirectoryInput = document.getElementById(
+              "target-directory-path"
+            );
+            const pathPrefixInput = document.getElementById("path-prefix");
+
+            const targetPath = targetDirectoryInput.value.trim();
+
+            // Validate target path
+            if (!targetPath) {
+              alert("Please enter a target directory path");
+              return;
+            }
+
+            // Add target directory as first argument (no flag)
+            args.push(targetPath);
+
+            // Add path prefix if specified
+            const pathPrefix = pathPrefixInput.value.trim();
+            if (pathPrefix) {
+              args.push("--prefix", pathPrefix);
+            }
+
+            // Create newline-separated list of files
+            input = Array.from(selectedItems).join("\n");
+          } else if (selectedTask === "metadata") {
+            command = "metadata";
+            args = [];
+
+            // Get selected metadata types
+            const metadataTypes = [];
+            if (document.getElementById("metadata-description").checked) {
+              metadataTypes.push("description");
+            }
+            if (document.getElementById("metadata-transcript").checked) {
+              metadataTypes.push("transcript");
+            }
+            if (document.getElementById("metadata-hash").checked) {
+              metadataTypes.push("hash");
+            }
+            if (document.getElementById("metadata-dimensions").checked) {
+              metadataTypes.push("dimensions");
+            }
+            if (document.getElementById("metadata-autotag").checked) {
+              metadataTypes.push("autotag");
+            }
+
+            // Validate that at least one metadata type is selected
+            if (metadataTypes.length === 0) {
+              alert("Please select at least one metadata type to generate");
+              return;
+            }
+
+            // Add metadata types as comma-separated list
+            args.push("--type", metadataTypes.join(","));
+
+            // Add apply scope
+            const applyScope =
+              document.getElementById("apply-scope-select").value;
+            args.push("--apply", applyScope);
+
+            // Add AI model
+            const ollamaModel = document
+              .getElementById("ollama-model")
+              .value.trim();
+            if (ollamaModel) {
+              args.push("--model", ollamaModel);
+            }
+
+            // Add overwrite flag if checked
+            if (overwriteCheckbox.checked) {
+              args.push("--overwrite");
+            }
+
+            input = Array.from(selectedItems).join("\n");
+          } else if (selectedTask === "autotag") {
+            command = "autotag";
+            args = [];
+            // Pass comma-separated list to support multi-file in one task
+            input = Array.from(selectedItems).join(",");
           }
 
-          // Add overwrite flag if checked
-          if (overwriteCheckbox.checked) {
-            args.push('--overwrite');
+          // Disable the button
+          executeButton.disabled = true;
+          executeButton.textContent = "Executing...";
+
+          // Create the job - properly quote the input to treat it as a single argument
+          let formattedInput = "";
+          if (input) {
+            // Escape any quotes in the input and wrap the entire input in quotes
+            const escapedInput = input.replace(/"/g, '\\"');
+            formattedInput = `"${escapedInput}"`;
           }
 
-          input = Array.from(selectedItems).join('\n');
-        }
+          const jobData = {
+            input: `${command} ${args.join(" ")} ${formattedInput}`,
+          };
 
-        // Confirm the action
-        const itemWord = selectedItems.size === 1 ? 'item' : 'items';
-        const taskName = taskSelect.options[taskSelect.selectedIndex].text;
-        if (!confirm(`Execute "${taskName}" on ${selectedItems.size} ${itemWord}?`)) {
-          return;
-        }
-
-        // Disable the button
-        executeButton.disabled = true;
-        executeButton.textContent = 'Executing...';
-
-        // Create the job - properly quote the input to treat it as a single argument
-        let formattedInput = '';
-        if (input) {
-          // Escape any quotes in the input and wrap the entire input in quotes
-          const escapedInput = input.replace(/"/g, '\\"');
-          formattedInput = `"${escapedInput}"`;
-        }
-
-        const jobData = {
-          input: `${command} ${args.join(' ')} ${formattedInput}`
-        };
-
-        fetch('/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(jobData)
-        })
-        .then(response => {
-          if (response.ok) {
-            return response.json();
-          }
-          throw new Error('Failed to create job');
-        })
-        .then(result => {
-          alert(`Job created successfully! Job ID: ${result.id}`);
-          clearSelection();
-
-          // Optionally redirect to job page
-          if (confirm('Would you like to view the job progress?')) {
-            window.open(`/job/${result.id}`, '_blank');
-          }
-        })
-        .catch(error => {
-          console.error('Error creating job:', error);
-          alert('Error creating job. Please try again.');
-        })
-        .finally(() => {
-          executeButton.disabled = false;
-          executeButton.textContent = 'Execute';
+          fetch("/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(jobData),
+          })
+            .then((response) => {
+              if (response.ok) {
+                return response.json();
+              }
+              throw new Error("Failed to create job");
+            })
+            .then((result) => {
+              // Show a non-blocking notification and link inline in the Job column
+              showNotification(`Job created: ${result.id}`, "success");
+              attachJobLinksToRows(Array.from(selectedItems), result.id);
+              clearSelection();
+            })
+            .catch((error) => {
+              console.error("Error creating job:", error);
+              alert("Error creating job. Please try again.");
+            })
+            .finally(() => {
+              executeButton.disabled = false;
+              executeButton.textContent = "Execute";
+            });
         });
-      });
 
       // Media preview functionality
       let previewTimeout;
@@ -1079,11 +1098,22 @@
       const hideDelay = 300; // ms
 
       function isImageFile(path) {
-        if (!path || typeof path !== 'string') return false;
-        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.ico'];
+        if (!path || typeof path !== "string") return false;
+        const imageExtensions = [
+          ".jpg",
+          ".jpeg",
+          ".png",
+          ".gif",
+          ".bmp",
+          ".webp",
+          ".svg",
+          ".tiff",
+          ".ico",
+        ];
         try {
-          const lastDotIndex = path.lastIndexOf('.');
-          if (lastDotIndex === -1 || lastDotIndex === path.length - 1) return false;
+          const lastDotIndex = path.lastIndexOf(".");
+          if (lastDotIndex === -1 || lastDotIndex === path.length - 1)
+            return false;
           const ext = path.toLowerCase().substring(lastDotIndex);
           return imageExtensions.includes(ext);
         } catch (e) {
@@ -1092,11 +1122,22 @@
       }
 
       function isVideoFile(path) {
-        if (!path || typeof path !== 'string') return false;
-        const videoExtensions = ['.mp4', '.webm', '.ogg', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.m4v'];
+        if (!path || typeof path !== "string") return false;
+        const videoExtensions = [
+          ".mp4",
+          ".webm",
+          ".ogg",
+          ".avi",
+          ".mov",
+          ".wmv",
+          ".flv",
+          ".mkv",
+          ".m4v",
+        ];
         try {
-          const lastDotIndex = path.lastIndexOf('.');
-          if (lastDotIndex === -1 || lastDotIndex === path.length - 1) return false;
+          const lastDotIndex = path.lastIndexOf(".");
+          if (lastDotIndex === -1 || lastDotIndex === path.length - 1)
+            return false;
           const ext = path.toLowerCase().substring(lastDotIndex);
           return videoExtensions.includes(ext);
         } catch (e) {
@@ -1105,22 +1146,22 @@
       }
 
       function isRemoteUrl(path) {
-        return path.startsWith('http://') || path.startsWith('https://');
+        return path.startsWith("http://") || path.startsWith("https://");
       }
 
       function getMediaUrl(path) {
         // Validate path
-        if (!path || typeof path !== 'string') {
-          throw new Error('Invalid path');
+        if (!path || typeof path !== "string") {
+          throw new Error("Invalid path");
         }
 
         // Trim and validate path length
         path = path.trim();
         if (path.length === 0) {
-          throw new Error('Empty path');
+          throw new Error("Empty path");
         }
         if (path.length > 1000) {
-          throw new Error('Path too long');
+          throw new Error("Path too long");
         }
 
         if (isRemoteUrl(path)) {
@@ -1131,7 +1172,7 @@
         try {
           return `/media/file?path=${encodeURIComponent(path)}`;
         } catch (e) {
-          throw new Error('Failed to encode path');
+          throw new Error("Failed to encode path");
         }
       }
 
@@ -1139,7 +1180,11 @@
         clearTimeout(hideTimeout);
 
         // Validate media path
-        if (!mediaPath || typeof mediaPath !== 'string' || mediaPath.trim() === '') {
+        if (
+          !mediaPath ||
+          typeof mediaPath !== "string" ||
+          mediaPath.trim() === ""
+        ) {
           return;
         }
 
@@ -1150,10 +1195,10 @@
           return;
         }
 
-        const preview = document.getElementById('media-preview');
-        const header = document.getElementById('preview-header');
-        const content = document.getElementById('preview-content');
-        const footer = document.getElementById('preview-footer');
+        const preview = document.getElementById("media-preview");
+        const header = document.getElementById("preview-header");
+        const content = document.getElementById("preview-content");
+        const footer = document.getElementById("preview-footer");
 
         previewTimeout = setTimeout(() => {
           // Position the preview near the mouse
@@ -1170,77 +1215,84 @@
             top = event.clientY - 310;
           }
 
-          preview.style.left = Math.max(10, left) + 'px';
-          preview.style.top = Math.max(10, top) + 'px';
+          preview.style.left = Math.max(10, left) + "px";
+          preview.style.top = Math.max(10, top) + "px";
 
           // Show preview
-          preview.style.display = 'block';
-          setTimeout(() => preview.classList.add('show'), 10);
+          preview.style.display = "block";
+          setTimeout(() => preview.classList.add("show"), 10);
 
           // Set header with safe file name extraction
           const fileName = extractFileName(mediaPath);
           header.textContent = fileName;
 
-                    // Show loading
-          content.innerHTML = '<div class="media-preview-loading">Loading...</div>';
+          // Show loading
+          content.innerHTML =
+            '<div class="media-preview-loading">Loading...</div>';
 
           let mediaUrl;
           try {
             mediaUrl = getMediaUrl(mediaPath);
           } catch (e) {
-            content.innerHTML = `<div class="media-preview-error">Invalid path<br>${escapeHtml(e.message)}</div>`;
-            footer.textContent = 'Path error';
+            content.innerHTML = `<div class="media-preview-error">Invalid path<br>${escapeHtml(
+              e.message
+            )}</div>`;
+            footer.textContent = "Path error";
             return;
           }
 
           if (isImageFile(mediaPath)) {
             const img = new Image();
-            img.onload = function() {
-              content.innerHTML = '';
+            img.onload = function () {
+              content.innerHTML = "";
               content.appendChild(img);
               footer.textContent = `Image • ${img.naturalWidth}×${img.naturalHeight}`;
             };
-            img.onerror = function() {
-              content.innerHTML = '<div class="media-preview-error">Failed to load image<br>Check if file exists and is accessible</div>';
-              footer.textContent = 'Error loading media';
+            img.onerror = function () {
+              content.innerHTML =
+                '<div class="media-preview-error">Failed to load image<br>Check if file exists and is accessible</div>';
+              footer.textContent = "Error loading media";
             };
 
             // Set a timeout for loading to prevent hanging
             setTimeout(() => {
               if (!img.complete) {
-                img.src = ''; // Cancel loading
-                content.innerHTML = '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
-                footer.textContent = 'Loading timeout';
+                img.src = ""; // Cancel loading
+                content.innerHTML =
+                  '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
+                footer.textContent = "Loading timeout";
               }
             }, 10000); // 10 second timeout
 
             img.src = mediaUrl;
           } else if (isVideoFile(mediaPath)) {
-            const video = document.createElement('video');
+            const video = document.createElement("video");
             video.muted = true;
             video.autoplay = true;
             video.loop = true;
             video.controls = false;
-            video.preload = 'metadata';
+            video.preload = "metadata";
 
-            video.onloadedmetadata = function() {
-              content.innerHTML = '';
+            video.onloadedmetadata = function () {
+              content.innerHTML = "";
               content.appendChild(video);
               const duration = Math.round(video.duration);
               footer.textContent = `Video • ${video.videoWidth}×${video.videoHeight} • ${duration}s`;
             };
 
-            video.onerror = function() {
-              content.innerHTML = '<div class="media-preview-error">Failed to load video<br>Check if file exists and is accessible</div>';
-              footer.textContent = 'Error loading media';
+            video.onerror = function () {
+              content.innerHTML =
+                '<div class="media-preview-error">Failed to load video<br>Check if file exists and is accessible</div>';
+              footer.textContent = "Error loading media";
             };
 
             // Set a timeout for loading
             setTimeout(() => {
               if (video.readyState === 0) {
-                video.src = ''; // Cancel loading
-                content.innerHTML = '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
-                footer.textContent = 'Loading timeout';
+                video.src = ""; // Cancel loading
+                content.innerHTML =
+                  '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
+                footer.textContent = "Loading timeout";
               }
             }, 15000); // 15 second timeout for videos
 
@@ -1256,9 +1308,11 @@
           const parts = path.split(/[/\\]/);
           const fileName = parts[parts.length - 1];
           // Limit filename length for display
-          return fileName.length > 50 ? fileName.substring(0, 47) + '...' : fileName;
+          return fileName.length > 50
+            ? fileName.substring(0, 47) + "..."
+            : fileName;
         } catch (e) {
-          return 'Unknown File';
+          return "Unknown File";
         }
       }
 
@@ -1266,84 +1320,111 @@
         clearTimeout(previewTimeout);
 
         hideTimeout = setTimeout(() => {
-          const preview = document.getElementById('media-preview');
-          preview.classList.remove('show');
+          const preview = document.getElementById("media-preview");
+          preview.classList.remove("show");
           setTimeout(() => {
-            preview.style.display = 'none';
+            preview.style.display = "none";
             // Clean up any media elements to stop playback and free memory
-            const content = document.getElementById('preview-content');
-            const videos = content.querySelectorAll('video');
-            videos.forEach(video => {
+            const content = document.getElementById("preview-content");
+            const videos = content.querySelectorAll("video");
+            videos.forEach((video) => {
               video.pause();
-              video.src = '';
+              video.src = "";
               video.load(); // Reset video element
             });
-            const images = content.querySelectorAll('img');
-            images.forEach(img => {
-              img.src = ''; // Cancel any pending image loads
+            const images = content.querySelectorAll("img");
+            images.forEach((img) => {
+              img.src = ""; // Cancel any pending image loads
             });
           }, 300);
         }, hideDelay);
       }
 
       // Add event listeners to preview element to prevent hiding when hovering over it
-      document.getElementById('media-preview').addEventListener('mouseenter', () => {
-        clearTimeout(hideTimeout);
-      });
+      document
+        .getElementById("media-preview")
+        .addEventListener("mouseenter", () => {
+          clearTimeout(hideTimeout);
+        });
 
-      document.getElementById('media-preview').addEventListener('mouseleave', hideMediaPreview);
+      document
+        .getElementById("media-preview")
+        .addEventListener("mouseleave", hideMediaPreview);
 
       function formatBytes(bytes) {
-        if (bytes === 0) return '0 B';
+        if (bytes === 0) return "0 B";
         const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const sizes = ["B", "KB", "MB", "GB", "TB"];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
       }
 
       function loadMoreItems() {
         if (isLoading || !hasMoreItems) return;
 
         isLoading = true;
-        document.getElementById('loading').style.display = 'block';
+        document.getElementById("loading").style.display = "block";
 
         const queryParams = new URLSearchParams({
           offset: currentOffset,
-          limit: 25
+          limit: 25,
         });
 
         if (currentSearchQuery) {
-          queryParams.set('q', currentSearchQuery);
+          queryParams.set("q", currentSearchQuery);
         }
 
         fetch(`/media/api?${queryParams}`)
-          .then(response => response.json())
-          .then(data => {
-            const mediaList = document.getElementById('media-list');
+          .then((response) => response.json())
+          .then((data) => {
+            const mediaList = document.getElementById("media-list");
 
-            data.items.forEach(item => {
-              const row = document.createElement('div');
-              row.className = 'media-row';
+            data.items.forEach((item) => {
+              const row = document.createElement("div");
+              row.className = "media-row";
 
               // Build tags HTML
-              let tagsHtml = '-';
+              let tagsHtml = "-";
               if (item.tags && item.tags.length > 0) {
-                tagsHtml = item.tags.map(tag =>
-                  `<span class="tag-item"><span class="tag-category">${escapeHtml(tag.category)}</span>:${escapeHtml(tag.label)}</span>`
-                ).join('');
+                tagsHtml = item.tags
+                  .map(
+                    (tag) =>
+                      `<span class="tag-item"><span class="tag-category">${escapeHtml(
+                        tag.category
+                      )}</span>:${escapeHtml(tag.label)}</span>`
+                  )
+                  .join("");
               }
 
               row.innerHTML = `
                 <div class="media-cell checkbox" data-label="Select">
-                  <input type="checkbox" class="media-checkbox" value="${escapeHtml(item.path)}" onchange="updateSelection()">
+                  <input type="checkbox" class="media-checkbox" value="${escapeHtml(
+                    item.path
+                  )}" onchange="updateSelection()">
                 </div>
-                <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(item.path)}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(item.path)}</div>
-                <div class="media-cell description" data-label="Description">${escapeHtml(item.description || '-')}</div>
-                <div class="media-cell dimensions" data-label="Width">${item.width || '-'}</div>
-                <div class="media-cell dimensions" data-label="Height">${item.height || '-'}</div>
-                <div class="media-cell size" data-label="Size">${item.size ? formatBytes(item.size) : 'Unknown'}</div>
-                <div class="media-cell exists" data-label="Exists">${item.exists ? '✅' : '❌'}</div>
-                <div class="media-cell hash" data-label="Hash">${escapeHtml(item.hash || '-')}</div>
+                <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(
+                  item.path
+                )}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(
+                item.path
+              )}</div>
+                <div class="media-cell description" data-label="Description">${escapeHtml(
+                  item.description || "-"
+                )}</div>
+                <div class="media-cell dimensions" data-label="Width">${
+                  item.width || "-"
+                }</div>
+                <div class="media-cell dimensions" data-label="Height">${
+                  item.height || "-"
+                }</div>
+                <div class="media-cell size" data-label="Size">${
+                  item.size ? formatBytes(item.size) : "Unknown"
+                }</div>
+                <div class="media-cell exists" data-label="Exists">${
+                  item.exists ? "✅" : "❌"
+                }</div>
+                <div class="media-cell hash" data-label="Hash">${escapeHtml(
+                  item.hash || "-"
+                )}</div>
                 <div class="media-cell tags" data-label="Tags">${tagsHtml}</div>
               `;
               mediaList.appendChild(row);
@@ -1353,23 +1434,23 @@
             hasMoreItems = data.has_more;
 
             if (!hasMoreItems) {
-              document.getElementById('end-of-list').style.display = 'block';
+              document.getElementById("end-of-list").style.display = "block";
             }
           })
-          .catch(error => {
-            console.error('Error loading more items:', error);
+          .catch((error) => {
+            console.error("Error loading more items:", error);
           })
           .finally(() => {
             isLoading = false;
-            document.getElementById('loading').style.display = 'none';
+            document.getElementById("loading").style.display = "none";
           });
       }
 
       function escapeHtml(text) {
         if (text == null || text === undefined) {
-          return '';
+          return "";
         }
-        const div = document.createElement('div');
+        const div = document.createElement("div");
         div.textContent = String(text);
         return div.innerHTML;
       }
@@ -1377,7 +1458,7 @@
       function performSearch(query) {
         const queryParams = new URLSearchParams();
         if (query) {
-          queryParams.set('q', query);
+          queryParams.set("q", query);
         }
 
         // Redirect to reload the page with the new search
@@ -1385,21 +1466,26 @@
       }
 
       // Search form handling
-      document.getElementById('search-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const query = document.getElementById('search-input').value.trim();
-        performSearch(query);
-      });
+      document
+        .getElementById("search-form")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+          const query = document.getElementById("search-input").value.trim();
+          performSearch(query);
+        });
 
       // Clear search button
-      document.getElementById('clear-search').addEventListener('click', function() {
-        document.getElementById('search-input').value = '';
-        performSearch('');
-      });
+      document
+        .getElementById("clear-search")
+        .addEventListener("click", function () {
+          document.getElementById("search-input").value = "";
+          performSearch("");
+        });
 
       // Infinite scroll implementation
       function checkScroll() {
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const scrollTop =
+          window.pageYOffset || document.documentElement.scrollTop;
         const windowHeight = window.innerHeight;
         const documentHeight = document.documentElement.offsetHeight;
 
@@ -1411,7 +1497,7 @@
 
       // Throttled scroll event listener
       let scrollTimeout;
-      window.addEventListener('scroll', function() {
+      window.addEventListener("scroll", function () {
         if (scrollTimeout) {
           clearTimeout(scrollTimeout);
         }
@@ -1419,44 +1505,48 @@
       });
 
       // Load initial items if the page is not tall enough to scroll
-      document.addEventListener('DOMContentLoaded', function() {
+      document.addEventListener("DOMContentLoaded", function () {
         setTimeout(() => {
-          if (document.documentElement.offsetHeight <= window.innerHeight && hasMoreItems) {
+          if (
+            document.documentElement.offsetHeight <= window.innerHeight &&
+            hasMoreItems
+          ) {
             loadMoreItems();
           }
         }, 100);
       });
 
       // EventSource for real-time updates
-      document.addEventListener('DOMContentLoaded', function() {
+      document.addEventListener("DOMContentLoaded", function () {
         let eventSource = null;
         const connectEventSource = () => {
           if (!navigator.onLine) {
-            console.warn('Offline. EventSource will not connect.');
+            console.warn("Offline. EventSource will not connect.");
             return;
           }
 
-          console.log('Connecting to EventSource...');
-          eventSource = new EventSource('/stream');
+          console.log("Connecting to EventSource...");
+          eventSource = new EventSource("/stream");
 
           eventSource.onopen = () => {
-            console.log('EventSource connected.');
+            console.log("EventSource connected.");
           };
 
           eventSource.onerror = (error) => {
-            console.error('EventSource error:', error);
+            console.error("EventSource error:", error);
             if (eventSource.readyState === EventSource.CLOSED) {
-              console.log('Retrying EventSource connection in 3 seconds...');
+              console.log("Retrying EventSource connection in 3 seconds...");
               setTimeout(connectEventSource, 3000);
             }
           };
 
-          eventSource.addEventListener('update', (event) => {
+          eventSource.addEventListener("update", (event) => {
             const jobUpdate = JSON.parse(event.data);
             const job = jobUpdate.job;
 
             // Check if this is a job completion that affects media
-            if (job.state === 2) { // StateCompleted = 2
+            if (job.state === 2) {
+              // StateCompleted = 2
               handleJobCompletion(job);
             }
           });
@@ -1464,48 +1554,88 @@
 
         connectEventSource();
 
-        window.addEventListener('beforeunload', (e) => {
+        window.addEventListener("beforeunload", (e) => {
           if (eventSource) {
             eventSource.close();
-            console.log('EventSource connection closed.');
+            console.log("EventSource connection closed.");
           }
         });
 
-        window.addEventListener('online', connectEventSource);
-        window.addEventListener('offline', () => {
+        window.addEventListener("online", connectEventSource);
+        window.addEventListener("offline", () => {
           if (eventSource) {
             eventSource.close();
-            console.log('EventSource closed due to offline status.');
+            console.log("EventSource closed due to offline status.");
           }
         });
       });
 
       function handleJobCompletion(job) {
-        const mediaAffectingCommands = ['remove', 'metadata', 'ingest', 'cleanup', 'move'];
+        const mediaAffectingCommands = [
+          "remove",
+          "metadata",
+          "ingest",
+          "cleanup",
+          "move",
+          "autotag",
+        ]; // include autotag
 
         if (!mediaAffectingCommands.includes(job.command)) {
           return; // Job doesn't affect media
         }
 
-        console.log('Media-affecting job completed:', job);
+        console.log("Media-affecting job completed:", job);
+        // Update any Job column links pointing at this job
+        updateJobLinks(job);
 
         switch (job.command) {
-          case 'remove':
+          case "remove":
             handleRemoveJobCompletion(job);
             break;
-          case 'metadata':
+          case "metadata":
             handleMetadataJobCompletion(job);
             break;
-          case 'ingest':
+          case "ingest":
             handleIngestJobCompletion(job);
             break;
-          case 'cleanup':
+          case "cleanup":
             handleCleanupJobCompletion(job);
             break;
-          case 'move':
+          case "move":
             handleMoveJobCompletion(job);
             break;
+          case "autotag":
+            // For autotag, refresh affected rows to show new tags
+            handleMetadataJobCompletion(job);
+            break;
         }
+      }
+
+      // Attach a job link into the Job column for the given rows
+      function attachJobLinksToRows(paths, jobId) {
+        if (!paths || !jobId) return;
+        paths.forEach((path) => {
+          const rows = document.querySelectorAll(".media-row");
+          Array.from(rows).forEach((row) => {
+            const pathCell = row.querySelector(".media-cell.path");
+            if (pathCell && pathCell.textContent.trim() === path) {
+              const jobCell = row.querySelector(".media-cell.job");
+              if (jobCell) {
+                jobCell.innerHTML = `<a href="/job/${jobId}" target="_blank" style="color:#61dafb">Job ${jobId}</a>`;
+              }
+            }
+          });
+        });
+      }
+
+      function updateJobLinks(job) {
+        if (!job || !job.id) return;
+        const jobLinks = document.querySelectorAll(".media-cell.job a");
+        Array.from(jobLinks).forEach((a) => {
+          if (a.getAttribute("href") === `/job/${job.id}`) {
+            a.textContent = `Job ${job.id} (done)`;
+          }
+        });
       }
 
       function handleRemoveJobCompletion(job) {
@@ -1513,13 +1643,16 @@
         const input = job.input;
         if (!input) return;
 
-        const paths = input.split('\n').map(path => path.trim()).filter(path => path);
+        const paths = input
+          .split("\n")
+          .map((path) => path.trim())
+          .filter((path) => path);
 
         // Remove rows from the current view
-        paths.forEach(path => {
-          const rows = document.querySelectorAll('.media-row');
-          rows.forEach(row => {
-            const pathCell = row.querySelector('.media-cell.path');
+        paths.forEach((path) => {
+          const rows = document.querySelectorAll(".media-row");
+          rows.forEach((row) => {
+            const pathCell = row.querySelector(".media-cell.path");
             if (pathCell && pathCell.textContent.trim() === path) {
               row.remove();
               // Also remove from selected items if it was selected
@@ -1531,7 +1664,10 @@
         // Update selection UI
         updateSelection();
 
-        showNotification(`Removed ${paths.length} media item(s) from database`, 'success');
+        showNotification(
+          `Removed ${paths.length} media item(s) from database`,
+          "success"
+        );
       }
 
       function handleMetadataJobCompletion(job) {
@@ -1540,23 +1676,36 @@
         if (!input) return;
 
         // Parse paths from input (newline separated)
-        const paths = input.split('\n').map(path => path.trim()).filter(path => path);
+        const paths = input
+          .split("\n")
+          .map((path) => path.trim())
+          .filter((path) => path);
 
         // Refresh affected rows by fetching updated data
         refreshMediaRows(paths);
 
-        showNotification(`Updated metadata for ${paths.length} media item(s)`, 'success');
+        showNotification(
+          `Updated metadata for ${paths.length} media item(s)`,
+          "success"
+        );
       }
 
       function handleIngestJobCompletion(job) {
         // For ingest jobs, new media might have been added
         // We could either reload the entire list or show a notification
-        showNotification('Media ingest completed. New items may be available.', 'info');
+        showNotification(
+          "Media ingest completed. New items may be available.",
+          "info"
+        );
 
         // If we're showing all items (no search), we could reload
         if (!currentSearchQuery) {
           // Optionally ask user if they want to refresh
-          if (confirm('New media items have been ingested. Would you like to refresh the list?')) {
+          if (
+            confirm(
+              "New media items have been ingested. Would you like to refresh the list?"
+            )
+          ) {
             window.location.reload();
           }
         }
@@ -1564,10 +1713,17 @@
 
       function handleCleanupJobCompletion(job) {
         // For cleanup jobs, some items might have been removed
-        showNotification('Database cleanup completed. Some items may have been removed.', 'info');
+        showNotification(
+          "Database cleanup completed. Some items may have been removed.",
+          "info"
+        );
 
         // Could optionally reload the entire list
-        if (confirm('Database cleanup completed. Would you like to refresh the list to see changes?')) {
+        if (
+          confirm(
+            "Database cleanup completed. Would you like to refresh the list to see changes?"
+          )
+        ) {
           window.location.reload();
         }
       }
@@ -1578,13 +1734,16 @@
         if (!input) return;
 
         // Parse paths from input (newline separated for move jobs)
-        const originalPaths = input.split('\n').map(path => path.trim()).filter(path => path);
+        const originalPaths = input
+          .split("\n")
+          .map((path) => path.trim())
+          .filter((path) => path);
 
         // Remove the original rows since the paths have changed
-        originalPaths.forEach(path => {
-          const rows = document.querySelectorAll('.media-row');
-          rows.forEach(row => {
-            const pathCell = row.querySelector('.media-cell.path');
+        originalPaths.forEach((path) => {
+          const rows = document.querySelectorAll(".media-row");
+          rows.forEach((row) => {
+            const pathCell = row.querySelector(".media-cell.path");
             if (pathCell && pathCell.textContent.trim() === path) {
               row.remove();
               // Also remove from selected items if it was selected
@@ -1596,21 +1755,28 @@
         // Update selection UI
         updateSelection();
 
-        showNotification(`Moved ${originalPaths.length} media item(s) to new location`, 'success');
+        showNotification(
+          `Moved ${originalPaths.length} media item(s) to new location`,
+          "success"
+        );
 
         // Suggest refreshing to see the moved items at their new paths
-        if (confirm('Files have been moved successfully. Would you like to refresh the list to see the updated paths?')) {
+        if (
+          confirm(
+            "Files have been moved successfully. Would you like to refresh the list to see the updated paths?"
+          )
+        ) {
           window.location.reload();
         }
       }
 
       function refreshMediaRows(paths) {
         // For each path, find the row and refresh it with updated data
-        paths.forEach(path => {
+        paths.forEach((path) => {
           // Find the row for this path
-          const rows = document.querySelectorAll('.media-row');
-          const targetRow = Array.from(rows).find(row => {
-            const pathCell = row.querySelector('.media-cell.path');
+          const rows = document.querySelectorAll(".media-row");
+          const targetRow = Array.from(rows).find((row) => {
+            const pathCell = row.querySelector(".media-cell.path");
             return pathCell && pathCell.textContent.trim() === path;
           });
 
@@ -1625,59 +1791,68 @@
         const encodedPath = encodeURIComponent(path);
 
         fetch(`/media/api?path=${encodedPath}&single=true`)
-          .then(response => response.json())
-          .then(data => {
+          .then((response) => response.json())
+          .then((data) => {
             if (data.items && data.items.length > 0) {
               const item = data.items[0];
               updateRowWithNewData(rowElement, item);
             }
           })
-          .catch(error => {
-            console.error('Error refreshing media row:', error);
+          .catch((error) => {
+            console.error("Error refreshing media row:", error);
           });
       }
 
       function updateRowWithNewData(rowElement, item) {
         // Find and update specific cells
-        const descriptionCell = rowElement.querySelector('.media-cell.description');
+        const descriptionCell = rowElement.querySelector(
+          ".media-cell.description"
+        );
         if (descriptionCell) {
-          descriptionCell.textContent = item.description || '-';
+          descriptionCell.textContent = item.description || "-";
         }
 
-        const widthCells = rowElement.querySelectorAll('.media-cell.dimensions');
+        const widthCells = rowElement.querySelectorAll(
+          ".media-cell.dimensions"
+        );
         if (widthCells.length >= 1) {
-          widthCells[0].textContent = item.width || '-';
+          widthCells[0].textContent = item.width || "-";
         }
         if (widthCells.length >= 2) {
-          widthCells[1].textContent = item.height || '-';
+          widthCells[1].textContent = item.height || "-";
         }
 
-        const hashCell = rowElement.querySelector('.media-cell.hash');
+        const hashCell = rowElement.querySelector(".media-cell.hash");
         if (hashCell) {
-          hashCell.textContent = item.hash || '-';
+          hashCell.textContent = item.hash || "-";
         }
 
-        const tagsCell = rowElement.querySelector('.media-cell.tags');
+        const tagsCell = rowElement.querySelector(".media-cell.tags");
         if (tagsCell) {
-          let tagsHtml = '-';
+          let tagsHtml = "-";
           if (item.tags && item.tags.length > 0) {
-            tagsHtml = item.tags.map(tag =>
-              `<span class="tag-item"><span class="tag-category">${escapeHtml(tag.category)}</span>:${escapeHtml(tag.label)}</span>`
-            ).join('');
+            tagsHtml = item.tags
+              .map(
+                (tag) =>
+                  `<span class="tag-item"><span class="tag-category">${escapeHtml(
+                    tag.category
+                  )}</span>:${escapeHtml(tag.label)}</span>`
+              )
+              .join("");
           }
           tagsCell.innerHTML = tagsHtml;
         }
 
         // Add a subtle animation to indicate the row was updated
-        rowElement.style.backgroundColor = '#2a4a3a';
+        rowElement.style.backgroundColor = "#2a4a3a";
         setTimeout(() => {
-          rowElement.style.backgroundColor = '';
+          rowElement.style.backgroundColor = "";
         }, 2000);
       }
 
-      function showNotification(message, type = 'info') {
+      function showNotification(message, type = "info") {
         // Create a notification element
-        const notification = document.createElement('div');
+        const notification = document.createElement("div");
         notification.style.cssText = `
           position: fixed;
           top: 20px;
@@ -1694,15 +1869,15 @@
         `;
 
         switch (type) {
-          case 'success':
-            notification.style.backgroundColor = '#28a745';
+          case "success":
+            notification.style.backgroundColor = "#28a745";
             break;
-          case 'error':
-            notification.style.backgroundColor = '#dc3545';
+          case "error":
+            notification.style.backgroundColor = "#dc3545";
             break;
-          case 'info':
+          case "info":
           default:
-            notification.style.backgroundColor = '#17a2b8';
+            notification.style.backgroundColor = "#17a2b8";
             break;
         }
 
@@ -1711,7 +1886,7 @@
 
         // Auto-remove after 5 seconds
         setTimeout(() => {
-          notification.style.opacity = '0';
+          notification.style.opacity = "0";
           setTimeout(() => {
             if (notification.parentNode) {
               notification.parentNode.removeChild(notification);
@@ -1721,15 +1896,15 @@
       }
 
       function htmlToNode(html) {
-        const template = document.createElement('template');
+        const template = document.createElement("template");
         template.innerHTML = html.trim();
         const nNodes = template.content.childNodes.length;
         if (nNodes !== 1) {
           throw new Error(
             `html parameter must represent a single node; got ${nNodes}. ` +
-              'Note that leading or trailing spaces around an element in your ' +
+              "Note that leading or trailing spaces around an element in your " +
               'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
-              'the element; call .trim() on your input to avoid this.'
+              "the element; call .trim() on your input to avoid this."
           );
         }
         return template.content.firstChild;
