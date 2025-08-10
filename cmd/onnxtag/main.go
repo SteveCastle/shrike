@@ -12,21 +12,26 @@ import (
 
 func main() {
 	var (
-		modelPath   string
-		imagePath   string
-		labelsPath  string
-		configPath  string
-		selectedCSV string
-		inputName   string
-		outputName  string
-		width       int
-		height      int
-		topK        int
-		numClasses  int
-		ortLibPath  string
-		meanStr     string
-		stdStr      string
-		layout      string
+		modelPath     string
+		imagePath     string
+		labelsPath    string
+		configPath    string
+		selectedCSV   string
+		inputName     string
+		outputName    string
+		width         int
+		height        int
+		topK          int
+		numClasses    int
+		ortLibPath    string
+		meanStr       string
+		stdStr        string
+		layout        string
+		color         string
+		pixelRange    string
+		padSquare     bool
+		generalThresh float64
+		charThresh    float64
 	)
 
 	flag.StringVar(&modelPath, "model", "", "Path to ONNX model file")
@@ -44,6 +49,11 @@ func main() {
 	flag.StringVar(&meanStr, "mean", "0,0,0", "Normalization mean RGB as comma-separated floats in [0,1]")
 	flag.StringVar(&stdStr, "std", "1,1,1", "Normalization stddev RGB as comma-separated floats")
 	flag.StringVar(&layout, "layout", "NCHW", "Input layout: NCHW or NHWC")
+	flag.StringVar(&color, "color", "RGB", "Channel order: RGB or BGR")
+	flag.StringVar(&pixelRange, "pixel-range", "0_1", "Pixel range: 0_1 (scale/normalize) or 0_255 (no /255)")
+	flag.BoolVar(&padSquare, "pad-square", false, "Pad to square (white) before resize instead of center-crop")
+	flag.Float64Var(&generalThresh, "general-thresh", 0.35, "General tags threshold (wd style)")
+	flag.Float64Var(&charThresh, "character-thresh", 0.85, "Character tags threshold (wd style)")
 	flag.Parse()
 
 	if modelPath == "" || imagePath == "" {
@@ -61,6 +71,11 @@ func main() {
 	opts.ORTSharedLibraryPath = ortLibPath
 	opts.NumClasses = numClasses
 	opts.InputLayout = layout
+	opts.ColorOrder = color
+	opts.PixelRange = pixelRange
+	opts.PadToSquare = padSquare
+	opts.GeneralThreshold = float32(generalThresh)
+	opts.CharacterThreshold = float32(charThresh)
 
 	// Parse mean/std
 	parse3 := func(s string) ([3]float32, error) {
@@ -101,11 +116,20 @@ func main() {
 	}
 
 	if labelsPath != "" {
-		labels, err := onnxtag.FromLabelsFile(labelsPath)
+		// For wd selected_tags.csv, load labels in row order to align with outputs
+		labels, err := onnxtag.LoadWdLabelsFromCSV(labelsPath)
 		if err != nil {
 			log.Fatalf("failed to load labels: %v", err)
 		}
 		opts.Labels = labels
+		// Also try to load wd category indices from the same CSV when --selected-tags not given
+		if selectedCSV == "" {
+			if rIdx, gIdx, cIdx, err := onnxtag.LoadWdCategoryIndicesWithOrder(labelsPath); err == nil {
+				opts.RatingIndices = rIdx
+				opts.GeneralIndices = gIdx
+				opts.CharacterIndices = cIdx
+			}
+		}
 	}
 
 	if selectedCSV != "" {
@@ -114,6 +138,14 @@ func main() {
 			log.Fatalf("failed to load selected tags: %v", err)
 		}
 		opts.SelectedClassNames = m
+
+		// Also load wd category indices using row order for better parity
+		ratingIdx, generalIdx, characterIdx, err := onnxtag.LoadWdCategoryIndicesWithOrder(selectedCSV)
+		if err == nil {
+			opts.RatingIndices = ratingIdx
+			opts.GeneralIndices = generalIdx
+			opts.CharacterIndices = characterIdx
+		}
 	}
 
 	tags, err := onnxtag.ClassifyImage(modelPath, imagePath, opts)

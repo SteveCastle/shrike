@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	resize "github.com/nfnt/resize"
 	ort "github.com/yalue/onnxruntime_go"
 	"golang.org/x/image/draw"
 )
@@ -62,6 +63,25 @@ type Options struct {
 	// InputLayout determines the tensor data and shape ordering.
 	// Supported values: "NCHW" (default) or "NHWC".
 	InputLayout string
+
+	// ColorOrder determines channel order: "RGB" or "BGR".
+	ColorOrder string
+
+	// PixelRange selects scale before normalization: "0_1" or "0_255".
+	// If "0_255", mean/std normalization is skipped to mirror some pipelines
+	// (e.g., wd-tagger uses BGR uint8 -> float32 without /255).
+	PixelRange string
+
+	// If true, pad to a square on a white background before resize (letterbox),
+	// instead of center cropping.
+	PadToSquare bool
+
+	// Optional wd-tagger-like postprocessing
+	RatingIndices      []int
+	GeneralIndices     []int
+	CharacterIndices   []int
+	GeneralThreshold   float32
+	CharacterThreshold float32
 }
 
 // DefaultOptions returns a reasonable default configuration commonly used by
@@ -79,6 +99,11 @@ func DefaultOptions() Options {
 		CropPct:            1.0,
 		CropMode:           "center",
 		InputLayout:        "NCHW",
+		ColorOrder:         "RGB",
+		PixelRange:         "0_1",
+		PadToSquare:        false,
+		GeneralThreshold:   0.35,
+		CharacterThreshold: 0.85,
 	}
 }
 
@@ -200,9 +225,28 @@ func ClassifyImage(modelPath, imagePath string, opts Options) ([]string, error) 
 
 	scores := outputTensor.GetData()
 
-	// If labels were not provided and the model produced fewer/more than our
-	// provisional output size, we cannot auto-detect here. We will simply trim to
-	// available scores and auto-name classes.
+	// wd-style postprocessing if category indices are provided
+	if len(opts.GeneralIndices) > 0 && len(opts.Labels) > 0 {
+		// Filter general tags by threshold and sort descending
+		general := make([]scoredIndex, 0, len(opts.GeneralIndices))
+		for _, idx := range opts.GeneralIndices {
+			if idx >= 0 && idx < len(scores) {
+				if scores[idx] >= opts.GeneralThreshold {
+					general = append(general, scoredIndex{Index: idx, Score: scores[idx]})
+				}
+			}
+		}
+		sort.Slice(general, func(i, j int) bool { return general[i].Score > general[j].Score })
+		// Map to names with score (like python zip)
+		out := make([]string, 0, len(general))
+		for _, gi := range general {
+			name := opts.Labels[gi.Index]
+			out = append(out, fmt.Sprintf("%s:%.5f", name, gi.Score))
+		}
+		return out, nil
+	}
+
+	// Fallback: top-K across all classes
 	if len(opts.SelectedClassNames) > 0 {
 		tags := topKSelected(scores, opts.SelectedClassNames, opts.Labels, opts.TopK)
 		return tags, nil
@@ -223,24 +267,52 @@ func loadImageAsTensor(path string, opts Options) (ort.Value, error) {
 		return nil, err
 	}
 
-	// Optional center crop
-	src := img
-	if opts.CropPct > 0 && opts.CropPct < 1.0 && strings.ToLower(opts.CropMode) == "center" {
-		b := img.Bounds()
+	// Flatten transparency over white background
+	b := img.Bounds()
+	whiteBG := image.NewRGBA(b)
+	// fill white
+	draw.Draw(whiteBG, b, &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(whiteBG, b, img, b.Min, draw.Over)
+
+	// Either pad to square (letterbox) or center-crop
+	var src image.Image
+	if opts.PadToSquare {
 		srcW := b.Dx()
 		srcH := b.Dy()
-		side := int(float32(minInt(srcW, srcH)) * opts.CropPct)
-		if side > 0 {
-			x0 := b.Min.X + (srcW-side)/2
-			y0 := b.Min.Y + (srcH-side)/2
-			src = cropRect(img, image.Rect(x0, y0, x0+side, y0+side))
+		side := maxInt(srcW, srcH)
+		square := image.NewRGBA(image.Rect(0, 0, side, side))
+		// white background
+		draw.Draw(square, square.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+		x0 := (side - srcW) / 2
+		y0 := (side - srcH) / 2
+		draw.Draw(square, image.Rect(x0, y0, x0+srcW, y0+srcH), whiteBG, b.Min, draw.Over)
+		src = square
+	} else {
+		// Optional center crop
+		src = whiteBG
+		if opts.CropPct > 0 && opts.CropPct < 1.0 && strings.ToLower(opts.CropMode) == "center" {
+			b2 := whiteBG.Bounds()
+			srcW := b2.Dx()
+			srcH := b2.Dy()
+			side := int(float32(minInt(srcW, srcH)) * opts.CropPct)
+			if side > 0 {
+				x0 := b2.Min.X + (srcW-side)/2
+				y0 := b2.Min.Y + (srcH-side)/2
+				src = cropRect(whiteBG, image.Rect(x0, y0, x0+side, y0+side))
+			}
 		}
 	}
 
-	// Resize to target size with chosen resampling
-	dst := image.NewRGBA(image.Rect(0, 0, opts.InputWidth, opts.InputHeight))
-	scaler := chooseScaler(opts.Interpolation)
-	scaler.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+	// Resize to target size with chosen resampling; use true Bicubic to match PIL
+	var dst image.Image
+	if strings.EqualFold(strings.TrimSpace(opts.Interpolation), "bicubic") {
+		dst = resize.Resize(uint(opts.InputWidth), uint(opts.InputHeight), src, resize.Bicubic)
+	} else {
+		rgba := image.NewRGBA(image.Rect(0, 0, opts.InputWidth, opts.InputHeight))
+		scaler := chooseScaler(opts.Interpolation)
+		scaler.Scale(rgba, rgba.Bounds(), src, src.Bounds(), draw.Over, nil)
+		dst = rgba
+	}
 
 	// Convert to float32 normalized RGB in desired layout
 	numPixels := opts.InputWidth * opts.InputHeight
@@ -261,17 +333,36 @@ func loadImageAsTensor(path string, opts Options) (ort.Value, error) {
 	}
 
 	layout := strings.ToUpper(strings.TrimSpace(opts.InputLayout))
+	// Channel order
+	colorOrder := strings.ToUpper(strings.TrimSpace(opts.ColorOrder))
+	// Pixel range
+	scaleToUnit := strings.EqualFold(strings.TrimSpace(opts.PixelRange), "0_1")
+
 	if layout == "NHWC" {
 		i := 0
 		for y := 0; y < opts.InputHeight; y++ {
 			for x := 0; x < opts.InputWidth; x++ {
 				c := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
-				fr := (float32(c.R)/255.0 - opts.NormalizeMeanRGB[0]) / stdR
-				fg := (float32(c.G)/255.0 - opts.NormalizeMeanRGB[1]) / stdG
-				fb := (float32(c.B)/255.0 - opts.NormalizeMeanRGB[2]) / stdB
-				data[i+0] = fr
-				data[i+1] = fg
-				data[i+2] = fb
+				r := float32(c.R)
+				g := float32(c.G)
+				b := float32(c.B)
+				if scaleToUnit {
+					r /= 255.0
+					g /= 255.0
+					b /= 255.0
+					r = (r - opts.NormalizeMeanRGB[0]) / stdR
+					g = (g - opts.NormalizeMeanRGB[1]) / stdG
+					b = (b - opts.NormalizeMeanRGB[2]) / stdB
+				}
+				if colorOrder == "BGR" {
+					data[i+0] = b
+					data[i+1] = g
+					data[i+2] = r
+				} else { // RGB
+					data[i+0] = r
+					data[i+1] = g
+					data[i+2] = b
+				}
 				i += 3
 			}
 		}
@@ -283,12 +374,26 @@ func loadImageAsTensor(path string, opts Options) (ort.Value, error) {
 		for y := 0; y < opts.InputHeight; y++ {
 			for x := 0; x < opts.InputWidth; x++ {
 				c := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
-				fr := (float32(c.R)/255.0 - opts.NormalizeMeanRGB[0]) / stdR
-				fg := (float32(c.G)/255.0 - opts.NormalizeMeanRGB[1]) / stdG
-				fb := (float32(c.B)/255.0 - opts.NormalizeMeanRGB[2]) / stdB
-				data[rOff+idx] = fr
-				data[gOff+idx] = fg
-				data[bOff+idx] = fb
+				r := float32(c.R)
+				g := float32(c.G)
+				b := float32(c.B)
+				if scaleToUnit {
+					r /= 255.0
+					g /= 255.0
+					b /= 255.0
+					r = (r - opts.NormalizeMeanRGB[0]) / stdR
+					g = (g - opts.NormalizeMeanRGB[1]) / stdG
+					b = (b - opts.NormalizeMeanRGB[2]) / stdB
+				}
+				if colorOrder == "BGR" {
+					data[bOff+idx] = r
+					data[gOff+idx] = g
+					data[rOff+idx] = b
+				} else { // RGB
+					data[rOff+idx] = r
+					data[gOff+idx] = g
+					data[bOff+idx] = b
+				}
 				idx++
 			}
 		}
@@ -331,6 +436,13 @@ func cropRect(img image.Image, r image.Rectangle) image.Image {
 
 func minInt(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b

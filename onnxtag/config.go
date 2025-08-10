@@ -30,6 +30,7 @@ type ModelConfig struct {
 		Mean           []float32 `json:"mean"`
 		Std            []float32 `json:"std"`
 		NumClasses     int       `json:"num_classes"`
+		// wd-tagger specifics are not explicitly listed in config; we set via Options
 	} `json:"pretrained_cfg"`
 }
 
@@ -54,7 +55,7 @@ func (mc *ModelConfig) ApplyToOptions(opts *Options) {
 		return
 	}
 	// Determine input size
-	if mc.PretrainedCfg.InputSize != nil && len(mc.PretrainedCfg.InputSize) == 3 {
+	if len(mc.PretrainedCfg.InputSize) == 3 {
 		// [C,H,W]
 		opts.InputWidth = mc.PretrainedCfg.InputSize[2]
 		opts.InputHeight = mc.PretrainedCfg.InputSize[1]
@@ -86,6 +87,16 @@ func (mc *ModelConfig) ApplyToOptions(opts *Options) {
 		opts.NumClasses = mc.NumClasses
 	} else if mc.PretrainedCfg.NumClasses > 0 {
 		opts.NumClasses = mc.PretrainedCfg.NumClasses
+	}
+	// wd-tagger uses NHWC with BGR, and pixel range 0..255 (no /255 normalization in numpy array)
+	// See: app.py prepare_image and predict
+	opts.InputLayout = "NHWC"
+	opts.ColorOrder = "BGR"
+	opts.PixelRange = "0_255"
+	// wd-tagger pads to square on white then resizes bicubic
+	opts.PadToSquare = true
+	if mc.PretrainedCfg.Interpolation == "" {
+		opts.Interpolation = "bicubic"
 	}
 }
 
@@ -132,4 +143,99 @@ func LoadSelectedTagsCSV(path string) (map[int]string, error) {
 		result[idx] = name
 	}
 	return result, nil
+}
+
+// LoadWdCategoryIndices reads selected_tags.csv and extracts category index lists
+// for wd-tagger style post-processing: rating (category==9), general (0), character (4).
+// LoadWdCategoryIndicesWithOrder builds index lists using CSV row order for indices.
+func LoadWdCategoryIndicesWithOrder(path string) (ratingIdx, generalIdx, characterIdx []int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.FieldsPerRecord = -1
+	headerRead := false
+	rowIndex := -1 // will increment at first data row to 0
+	for {
+		rec, err2 := r.Read()
+		if err2 == io.EOF {
+			break
+		}
+		if err2 != nil {
+			return nil, nil, nil, err2
+		}
+		if !headerRead {
+			headerRead = true
+			continue
+		}
+		if len(rec) < 4 {
+			continue
+		}
+		rowIndex++
+		catStr := strings.TrimSpace(rec[2])
+		cat64, err4 := strconv.ParseInt(catStr, 10, 64)
+		if err4 != nil {
+			continue
+		}
+		idx := rowIndex // model output index is row order
+		cat := int(cat64)
+		switch cat {
+		case 9:
+			ratingIdx = append(ratingIdx, idx)
+		case 0:
+			generalIdx = append(generalIdx, idx)
+		case 4:
+			characterIdx = append(characterIdx, idx)
+		}
+	}
+	return ratingIdx, generalIdx, characterIdx, nil
+}
+
+// LoadWdLabelsFromCSV returns labels in row order to align with model outputs.
+func LoadWdLabelsFromCSV(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.FieldsPerRecord = -1
+	headerRead := false
+	var labels []string
+	for {
+		rec, err2 := r.Read()
+		if err2 == io.EOF {
+			break
+		}
+		if err2 != nil {
+			return nil, err2
+		}
+		if !headerRead {
+			headerRead = true
+			continue
+		}
+		if len(rec) < 2 {
+			continue
+		}
+		name := strings.TrimSpace(rec[1])
+		if !isKaomoji(name) {
+			name = strings.ReplaceAll(name, "_", " ")
+		}
+		labels = append(labels, name)
+	}
+	return labels, nil
+}
+
+// subset of kaomojis used in wd-tagger to avoid underscore replacement
+var kaomojis = map[string]struct{}{
+	"0_0": {}, "(o)_(o)": {}, "+_+": {}, "+_-": {}, "._.": {}, "_": {}, "<|>_<|>": {},
+	"=_=": {}, ">_<": {}, "3_3": {}, "6_9": {}, ">_o": {}, "@_@": {}, "^_^": {},
+	"o_o": {}, "u_u": {}, "x_x": {}, "|_|": {}, "||_||": {},
+}
+
+func isKaomoji(s string) bool {
+	_, ok := kaomojis[s]
+	return ok
 }
