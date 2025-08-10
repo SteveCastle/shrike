@@ -226,8 +226,19 @@ func ClassifyImage(modelPath, imagePath string, opts Options) ([]string, error) 
 	scores := outputTensor.GetData()
 
 	// wd-style postprocessing if category indices are provided
-	if len(opts.GeneralIndices) > 0 && len(opts.Labels) > 0 {
-		// Filter general tags by threshold and sort descending
+	if (len(opts.GeneralIndices) > 0 || len(opts.CharacterIndices) > 0) && len(opts.Labels) > 0 {
+		// Characters first
+		characters := make([]scoredIndex, 0, len(opts.CharacterIndices))
+		for _, idx := range opts.CharacterIndices {
+			if idx >= 0 && idx < len(scores) {
+				if scores[idx] >= opts.CharacterThreshold {
+					characters = append(characters, scoredIndex{Index: idx, Score: scores[idx]})
+				}
+			}
+		}
+		sort.Slice(characters, func(i, j int) bool { return characters[i].Score > characters[j].Score })
+
+		// General next
 		general := make([]scoredIndex, 0, len(opts.GeneralIndices))
 		for _, idx := range opts.GeneralIndices {
 			if idx >= 0 && idx < len(scores) {
@@ -237,8 +248,13 @@ func ClassifyImage(modelPath, imagePath string, opts Options) ([]string, error) 
 			}
 		}
 		sort.Slice(general, func(i, j int) bool { return general[i].Score > general[j].Score })
-		// Map to names with score (like python zip)
-		out := make([]string, 0, len(general))
+
+		// Concatenate characters then general, include scores
+		out := make([]string, 0, len(characters)+len(general))
+		for _, ci := range characters {
+			name := opts.Labels[ci.Index]
+			out = append(out, fmt.Sprintf("%s:%.5f", name, ci.Score))
+		}
 		for _, gi := range general {
 			name := opts.Labels[gi.Index]
 			out = append(out, fmt.Sprintf("%s:%.5f", name, gi.Score))
