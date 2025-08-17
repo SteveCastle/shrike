@@ -1,0 +1,162 @@
+{{ define "config" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Shrike Configuration</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .card {
+        background-color: #2d2d2d;
+        border-radius: 6px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .label {
+        color: #aaa;
+        font-size: 0.9em;
+        margin-bottom: 6px;
+        display: block;
+      }
+      .value {
+        color: #eee;
+        font-family: monospace;
+        word-break: break-all;
+      }
+      .input {
+        width: 100%;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        background-color: #1e1e1e;
+        border: 1px solid #555;
+        color: #d4d4d4;
+        border-radius: 4px;
+        font-family: monospace;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: none;
+        font-weight: bold;
+      }
+      .btn-primary {
+        background-color: #61dafb;
+        color: #000;
+      }
+      .btn-secondary {
+        background-color: #666;
+        color: #fff;
+      }
+      .status {
+        font-size: 0.9em;
+        color: #aaa;
+        margin-top: 8px;
+      }
+      nav a {
+        color: #61dafb;
+        margin-right: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Configuration</h1>
+      <nav class="card">
+        <a href="/">Jobs</a>
+        <a href="/media">Media Browser</a>
+        <a href="/config">Config</a>
+      </nav>
+
+      <div class="card">
+        <div class="label">Config file path</div>
+        <div class="value">{{.ConfigPath}}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Active DB Path</div>
+        <div class="value" id="active-db-path">{{.ActiveDBPath}}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Edit DB Path</div>
+        <input
+          id="db-path"
+          class="input"
+          type="text"
+          value="{{.Config.DBPath}}"
+        />
+        <div class="actions">
+          <button class="btn btn-primary" id="save-btn">Save</button>
+          <button class="btn btn-secondary" id="reload-btn">
+            Reload from file
+          </button>
+        </div>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const activeDbPathEl = document.getElementById("active-db-path");
+      function setStatus(msg, kind = "info") {
+        statusEl.textContent = msg;
+        statusEl.style.color =
+          kind === "error"
+            ? "#e06c75"
+            : kind === "success"
+            ? "#98c379"
+            : "#aaa";
+      }
+      document.getElementById("save-btn").addEventListener("click", () => {
+        const dbPath = document.getElementById("db-path").value.trim();
+        if (!dbPath) {
+          setStatus("dbPath cannot be empty", "error");
+          return;
+        }
+        setStatus("Saving...");
+        fetch("/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dbPath }),
+        })
+          .then((r) => r.json())
+          .then((res) => {
+            activeDbPathEl.textContent = res.activeDBPath || dbPath;
+            setStatus(
+              res.changed
+                ? "Saved and switched database."
+                : "Saved (no change).",
+              "success"
+            );
+          })
+          .catch((err) => setStatus("Error: " + err, "error"));
+      });
+      document.getElementById("reload-btn").addEventListener("click", () => {
+        setStatus("Reloading...");
+        fetch("/config")
+          .then((r) => r.text())
+          .then(() => {
+            window.location.reload();
+          })
+          .catch((err) => setStatus("Error: " + err, "error"));
+      });
+    </script>
+  </body>
+</html>
+{{ end }}

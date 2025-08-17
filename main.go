@@ -56,6 +56,9 @@ var srv *http.Server
 // Global dependencies variable so we can access it from onExit
 var deps *Dependencies
 
+// Keep a copy of the currently loaded config in memory
+var currentConfig Config
+
 // -----------------------------------------------------------------------------
 // Dependencies struct to hold shared dependencies
 // -----------------------------------------------------------------------------
@@ -93,34 +96,103 @@ type Config struct {
 	// Add other fields as needed, but we only need dbPath for now
 }
 
-func initDB() (*sql.DB, error) {
-	// Get the AppData directory dynamically for the current Windows user
+// getConfigPath returns the full path to the config.json file
+func getConfigPath() (string, error) {
 	appDataDir := os.Getenv("APPDATA")
 	if appDataDir == "" {
-		return nil, fmt.Errorf("APPDATA environment variable not found")
+		return "", fmt.Errorf("APPDATA environment variable not found")
 	}
+	return filepath.Join(appDataDir, "Lowkey Media Viewer", "config.json"), nil
+}
 
-	// Construct the path to the config file
-	configPath := filepath.Join(appDataDir, "Lowkey Media Viewer", "config.json")
-
-	// Read the config file
-	configData, err := os.ReadFile(configPath)
+// loadConfig reads the config from disk
+func loadConfig() (Config, string, error) {
+	cfgPath, err := getConfigPath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file at %s: %v", configPath, err)
+		return Config{}, "", err
 	}
 
-	// Parse the JSON config
-	var config Config
-	if err := json.Unmarshal(configData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config JSON: %v", err)
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return Config{}, cfgPath, fmt.Errorf("failed to read config file at %s: %v", cfgPath, err)
 	}
 
-	// Validate that dbPath is set
-	if config.DBPath == "" {
-		return nil, fmt.Errorf("dbPath not found in config file")
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, cfgPath, fmt.Errorf("failed to parse config JSON: %v", err)
+	}
+	if cfg.DBPath == "" {
+		return Config{}, cfgPath, fmt.Errorf("dbPath not found in config file")
+	}
+	return cfg, cfgPath, nil
+}
+
+// saveConfig writes the provided config back to disk
+func saveConfig(cfg Config) (string, error) {
+	cfgPath, err := getConfigPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
+		return cfgPath, fmt.Errorf("failed to create config directory: %v", err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return cfgPath, fmt.Errorf("failed to marshal config: %v", err)
+	}
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
+		return cfgPath, fmt.Errorf("failed to write config file: %v", err)
+	}
+	return cfgPath, nil
+}
+
+// switchDatabase switches the application's active database and queue to the provided path
+func switchDatabase(newDBPath string) error {
+	if newDBPath == "" {
+		return fmt.Errorf("newDBPath cannot be empty")
 	}
 
-	dbPath := config.DBPath
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(newDBPath), 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %v", err)
+	}
+
+	// Open and ping the new DB first to validate
+	newDB, err := sql.Open("sqlite", newDBPath)
+	if err != nil {
+		return fmt.Errorf("failed to open new database: %v", err)
+	}
+	if err := newDB.Ping(); err != nil {
+		newDB.Close()
+		return fmt.Errorf("failed to ping new database: %v", err)
+	}
+
+	// Prepare a new queue backed by the new DB
+	newQueue := jobqueue.NewQueueWithDB(newDB)
+
+	// Swap dependencies
+	oldDB := deps.DB
+	deps.DB = newDB
+	deps.Queue = newQueue
+
+	// Start runners for the new queue
+	runners.New(newQueue, 2)
+
+	// Close the old DB last
+	if oldDB != nil {
+		_ = oldDB.Close()
+	}
+	return nil
+}
+
+func initDB() (*sql.DB, error) {
+	// Load config
+	cfg, _, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	currentConfig = cfg
+	dbPath := cfg.DBPath
 	log.Printf("Using database path from config: %s", dbPath)
 
 	// Ensure the directory exists
@@ -498,6 +570,80 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Config page handlers
+// -----------------------------------------------------------------------------
+
+type configTemplateData struct {
+	Config       Config
+	ConfigPath   string
+	ActiveDBPath string
+}
+
+type updateConfigRequest struct {
+	DBPath string `json:"dbPath"`
+}
+
+func configHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			cfg, cfgPath, err := loadConfig()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			currentConfig = cfg
+			data := configTemplateData{
+				Config:       cfg,
+				ConfigPath:   cfgPath,
+				ActiveDBPath: cfg.DBPath,
+			}
+			if err := renderer.Templates().ExecuteTemplate(w, "config", data); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+		case http.MethodPost:
+			var req updateConfigRequest
+			if err := readJSONBody(r, &req); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			req.DBPath = strings.TrimSpace(req.DBPath)
+			if req.DBPath == "" {
+				http.Error(w, "dbPath cannot be empty", http.StatusBadRequest)
+				return
+			}
+
+			oldDBPath := currentConfig.DBPath
+			newCfg := currentConfig
+			newCfg.DBPath = req.DBPath
+			cfgPath, err := saveConfig(newCfg)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if req.DBPath != oldDBPath {
+				if err := switchDatabase(req.DBPath); err != nil {
+					http.Error(w, "failed to switch database: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			currentConfig = newCfg
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":       "ok",
+				"configPath":   cfgPath,
+				"activeDBPath": currentConfig.DBPath,
+				"changed":      req.DBPath != oldDBPath,
+			})
+		default:
+			http.Error(w, "Use GET or POST", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
 // mediaFileHandler serves individual media files for preview
 func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -787,6 +933,7 @@ func main() {
 	mux.HandleFunc("/media", renderer.ApplyMiddlewares(mediaHandler(deps)))
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
+	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",
