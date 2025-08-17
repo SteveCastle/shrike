@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -127,7 +126,7 @@ func loadConfig() (Config, string, error) {
 	return cfg, cfgPath, nil
 }
 
-// saveConfig writes the provided config back to disk
+// saveConfig updates only the dbPath in the existing config file, preserving other fields
 func saveConfig(cfg Config) (string, error) {
 	cfgPath, err := getConfigPath()
 	if err != nil {
@@ -136,7 +135,23 @@ func saveConfig(cfg Config) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
 		return cfgPath, fmt.Errorf("failed to create config directory: %v", err)
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+
+	// Read existing config as a generic map to preserve unknown fields
+	existing := map[string]any{}
+	if b, err := os.ReadFile(cfgPath); err == nil {
+		if err := json.Unmarshal(b, &existing); err != nil {
+			// If existing JSON is invalid, fall back to an empty map
+			existing = map[string]any{}
+		}
+	} else if !os.IsNotExist(err) {
+		return cfgPath, fmt.Errorf("failed to read existing config: %v", err)
+	}
+
+	// Update only dbPath
+	existing["dbPath"] = cfg.DBPath
+
+	// Write back preserving other keys
+	data, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		return cfgPath, fmt.Errorf("failed to marshal config: %v", err)
 	}
@@ -176,7 +191,7 @@ func switchDatabase(newDBPath string) error {
 	deps.Queue = newQueue
 
 	// Start runners for the new queue
-	runners.New(newQueue, 2)
+	runners.New(newQueue, 1)
 
 	// Close the old DB last
 	if oldDB != nil {
@@ -652,18 +667,10 @@ func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Get the file path from query parameter
-		encodedPath := r.URL.Query().Get("path")
-		if encodedPath == "" {
+		// Get the file path from query parameter (already decoded by net/url)
+		filePath := r.URL.Query().Get("path")
+		if filePath == "" {
 			http.Error(w, "Missing path parameter", http.StatusBadRequest)
-			return
-		}
-
-		// URL decode the path
-		filePath, err := url.QueryUnescape(encodedPath)
-		if err != nil {
-			log.Printf("Error decoding path '%s': %v", encodedPath, err)
-			http.Error(w, "Invalid path encoding", http.StatusBadRequest)
 			return
 		}
 
@@ -674,18 +681,12 @@ func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Check path length (prevent extremely long paths)
-		if len(filePath) > 1000 {
-			http.Error(w, "Path too long", http.StatusBadRequest)
-			return
-		}
-
-		// Basic security: prevent directory traversal attacks
-		// Note: This is a basic check - for production, consider more robust validation
-		if strings.Contains(filePath, "..") {
-			log.Printf("Potential directory traversal attempt: %s", filePath)
-			http.Error(w, "Invalid path", http.StatusBadRequest)
-			return
+		// If local path, enforce absolute path to avoid traversal via relative inputs
+		if !strings.HasPrefix(filePath, "http://") && !strings.HasPrefix(filePath, "https://") {
+			if !filepath.IsAbs(filePath) {
+				http.Error(w, "Path must be absolute", http.StatusBadRequest)
+				return
+			}
 		}
 
 		// For remote URLs, proxy the request

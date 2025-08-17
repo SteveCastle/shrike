@@ -184,6 +184,99 @@
         font-style: italic;
       }
 
+      /* View toggle */
+      .view-toggle {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 10px;
+      }
+      .toggle-btn {
+        padding: 6px 12px;
+        background-color: #333;
+        border: 1px solid #555;
+        color: #d4d4d4;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: monospace;
+        font-size: 0.9em;
+      }
+      .toggle-btn.active {
+        background-color: #61dafb;
+        color: #000;
+        border-color: #61dafb;
+      }
+
+      /* Grid view */
+      .media-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+      }
+      .grid-item {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        background: #111;
+        border: 1px solid #333;
+        border-radius: 6px;
+        overflow: hidden;
+        cursor: pointer;
+      }
+      .grid-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .grid-badge {
+        position: absolute;
+        right: 6px;
+        top: 6px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 10px;
+        pointer-events: none;
+      }
+
+      /* Lightbox overlay */
+      .lightbox {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.9);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+      .lightbox.show {
+        display: flex;
+      }
+      .lightbox-content {
+        max-width: 90vw;
+        max-height: 90vh;
+      }
+      .lightbox-content img,
+      .lightbox-content video {
+        max-width: 100%;
+        max-height: 90vh;
+        object-fit: contain;
+        border-radius: 8px;
+      }
+      .lightbox-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: #333;
+        color: #fff;
+        border: 1px solid #555;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
       /* Bulk Actions Panel */
       .bulk-actions {
         position: sticky;
@@ -447,6 +540,12 @@
         >
         <a href="/config" style="color: #61dafb">Config</a>
       </nav>
+
+      <div class="view-toggle" style="margin-bottom: 10px">
+        <span style="color: #aaa; font-size: 0.9em">View:</span>
+        <button id="view-table" type="button" class="toggle-btn">Table</button>
+        <button id="view-grid" type="button" class="toggle-btn">Grid</button>
+      </div>
 
       <div
         style="
@@ -760,7 +859,7 @@
         </form>
       </div>
 
-      <div class="media-table">
+      <div id="media-table" class="media-table">
         <div class="media-header">
           <div class="media-cell checkbox">
             <input
@@ -839,6 +938,7 @@
           No more items to load
         </div>
       </div>
+      <div id="media-grid" class="media-grid" style="display: none"></div>
     </div>
 
     <!-- Media Preview Tooltip -->
@@ -852,6 +952,14 @@
       </div>
     </div>
 
+    <!-- Lightbox for fullscreen media -->
+    <div id="lightbox" class="lightbox" aria-hidden="true">
+      <button id="lightbox-close" class="lightbox-close" type="button">
+        Close
+      </button>
+      <div id="lightbox-content" class="lightbox-content"></div>
+    </div>
+
     <script>
       let currentOffset = Number("{{.Offset}}") || 0;
       let isLoading = false;
@@ -860,6 +968,11 @@
         "{{.HasMore}}" === "1" ||
         "{{.HasMore}}" === "True";
       let currentSearchQuery = "{{.SearchQuery}}";
+
+      // View mode state
+      let currentViewMode = localStorage.getItem("mediaViewMode") || "table";
+      let gridInitialized = false;
+      let gridObserver = null;
 
       // Selection management
       let selectedItems = new Set();
@@ -1431,6 +1544,9 @@
                 <div class="media-cell tags" data-label="Tags">${tagsHtml}</div>
               `;
               mediaList.appendChild(row);
+
+              // Keep grid in sync
+              appendGridItem(item.path);
             });
 
             currentOffset += data.items.length;
@@ -1509,6 +1625,13 @@
 
       // Load initial items if the page is not tall enough to scroll
       document.addEventListener("DOMContentLoaded", function () {
+        // View toggle buttons
+        const tableBtn = document.getElementById("view-table");
+        const gridBtn = document.getElementById("view-grid");
+        tableBtn.addEventListener("click", () => setViewMode("table"));
+        gridBtn.addEventListener("click", () => setViewMode("grid"));
+        initViewMode();
+
         setTimeout(() => {
           if (
             document.documentElement.offsetHeight <= window.innerHeight &&
@@ -1571,6 +1694,168 @@
             console.log("EventSource closed due to offline status.");
           }
         });
+      });
+
+      // Grid helpers
+      function initViewMode() {
+        setViewMode(currentViewMode);
+      }
+
+      function setViewMode(mode) {
+        currentViewMode = mode === "grid" ? "grid" : "table";
+        localStorage.setItem("mediaViewMode", currentViewMode);
+        const tableEl = document.getElementById("media-table");
+        const gridEl = document.getElementById("media-grid");
+        const tableBtn = document.getElementById("view-table");
+        const gridBtn = document.getElementById("view-grid");
+        if (currentViewMode === "grid") {
+          tableEl.style.display = "none";
+          gridEl.style.display = "grid";
+          tableBtn.classList.remove("active");
+          gridBtn.classList.add("active");
+          ensureGridInitialized();
+        } else {
+          tableEl.style.display = "block";
+          gridEl.style.display = "none";
+          gridBtn.classList.remove("active");
+          tableBtn.classList.add("active");
+        }
+      }
+
+      function ensureGridInitialized() {
+        if (gridInitialized) return;
+        gridInitialized = true;
+
+        // Build initial grid items from current table rows
+        const rows = document.querySelectorAll(
+          "#media-list .media-row .media-cell.path"
+        );
+        rows.forEach((cell) => {
+          const path =
+            cell.getAttribute("data-media-path") || cell.textContent.trim();
+          appendGridItem(path);
+        });
+
+        // Setup IntersectionObserver
+        gridObserver = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                loadGridMedia(entry.target);
+                gridObserver.unobserve(entry.target);
+              }
+            });
+          },
+          { root: null, rootMargin: "100px", threshold: 0.01 }
+        );
+
+        // Observe all current items
+        document.querySelectorAll("#media-grid .grid-item").forEach((el) => {
+          gridObserver.observe(el);
+        });
+      }
+
+      function appendGridItem(path) {
+        if (!path) return;
+        const grid = document.getElementById("media-grid");
+        const item = document.createElement("div");
+        item.className = "grid-item";
+        item.setAttribute("data-path", path);
+        item.setAttribute("data-loaded", "0");
+        const badge = document.createElement("div");
+        badge.className = "grid-badge";
+        badge.textContent = isVideoFile(path) ? "Video" : "Image";
+        item.appendChild(badge);
+        item.addEventListener("click", () => openLightbox(path));
+        grid.appendChild(item);
+        if (gridObserver) {
+          gridObserver.observe(item);
+        }
+      }
+
+      function loadGridMedia(itemEl) {
+        if (!itemEl || itemEl.getAttribute("data-loaded") === "1") return;
+        const path = itemEl.getAttribute("data-path");
+        let url;
+        try {
+          url = getMediaUrl(path);
+        } catch (e) {
+          return;
+        }
+        if (isImageFile(path)) {
+          const img = new Image();
+          img.className = "grid-thumb";
+          img.loading = "lazy";
+          img.src = url;
+          img.alt = "";
+          itemEl.appendChild(img);
+        } else if (isVideoFile(path)) {
+          const video = document.createElement("video");
+          video.className = "grid-thumb";
+          video.muted = true;
+          video.playsInline = true;
+          video.autoplay = false;
+          video.controls = false;
+          video.preload = "metadata";
+          video.src = url;
+          itemEl.appendChild(video);
+        }
+        itemEl.setAttribute("data-loaded", "1");
+      }
+
+      // Lightbox
+      const lightbox = document.getElementById("lightbox");
+      const lightboxContent = document.getElementById("lightbox-content");
+      const lightboxClose = document.getElementById("lightbox-close");
+
+      function openLightbox(path) {
+        while (lightboxContent.firstChild)
+          lightboxContent.removeChild(lightboxContent.firstChild);
+        let url;
+        try {
+          url = getMediaUrl(path);
+        } catch (e) {
+          return;
+        }
+        if (isImageFile(path)) {
+          const img = new Image();
+          img.src = url;
+          img.alt = "";
+          lightboxContent.appendChild(img);
+        } else if (isVideoFile(path)) {
+          const video = document.createElement("video");
+          video.src = url;
+          video.controls = true; // show controls in fullscreen
+          video.muted = true; // keep muted by default
+          video.autoplay = true;
+          video.playsInline = true;
+          video.preload = "auto";
+          lightboxContent.appendChild(video);
+        }
+        lightbox.classList.add("show");
+        lightbox.setAttribute("aria-hidden", "false");
+      }
+
+      function closeLightbox() {
+        const vids = lightboxContent.querySelectorAll("video");
+        vids.forEach((v) => {
+          v.pause();
+          v.src = "";
+          v.load();
+        });
+        while (lightboxContent.firstChild)
+          lightboxContent.removeChild(lightboxContent.firstChild);
+        lightbox.classList.remove("show");
+        lightbox.setAttribute("aria-hidden", "true");
+      }
+
+      lightbox.addEventListener("click", (e) => {
+        if (e.target === lightbox) closeLightbox();
+      });
+      lightboxClose.addEventListener("click", closeLightbox);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && lightbox.classList.contains("show"))
+          closeLightbox();
       });
 
       function handleJobCompletion(job) {
