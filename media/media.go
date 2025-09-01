@@ -1071,6 +1071,15 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 // Suggestions for typeahead search
 // -----------------------------------------------------------------------------
 
+// escapeLikePattern escapes special LIKE characters so that user input is treated
+// as a literal substring. It escapes %, _ and the escape character itself (\).
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // SuggestFilters returns supported filter keys for the search syntax
 func SuggestFilters() []string {
 	return []string{
@@ -1097,11 +1106,11 @@ func SuggestTagLabels(db *sql.DB, prefix string, limit int) ([]string, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 25
 	}
-	like := strings.TrimSpace(prefix) + "%"
+	like := "%" + escapeLikePattern(strings.TrimSpace(prefix)) + "%"
 	rows, err := db.Query(`
         SELECT DISTINCT tag_label
         FROM media_tag_by_category
-        WHERE tag_label LIKE ? COLLATE NOCASE
+        WHERE tag_label COLLATE NOCASE LIKE ? ESCAPE '\'
         ORDER BY tag_label
         LIMIT ?
     `, like, limit)
@@ -1128,11 +1137,11 @@ func SuggestCategoryLabels(db *sql.DB, prefix string, limit int) ([]string, erro
 	if limit <= 0 || limit > 200 {
 		limit = 25
 	}
-	like := strings.TrimSpace(prefix) + "%"
+	like := "%" + escapeLikePattern(strings.TrimSpace(prefix)) + "%"
 	rows, err := db.Query(`
         SELECT DISTINCT category_label
         FROM media_tag_by_category
-        WHERE category_label LIKE ? COLLATE NOCASE
+        WHERE category_label COLLATE NOCASE LIKE ? ESCAPE '\'
         ORDER BY category_label
         LIMIT ?
     `, like, limit)
@@ -1159,11 +1168,11 @@ func SuggestPaths(db *sql.DB, prefix string, limit int) ([]string, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 25
 	}
-	like := strings.TrimSpace(prefix) + "%"
+	like := "%" + escapeLikePattern(strings.TrimSpace(prefix)) + "%"
 	rows, err := db.Query(`
         SELECT DISTINCT path
         FROM media
-        WHERE path LIKE ?
+        WHERE path LIKE ? ESCAPE '\'
         ORDER BY path
         LIMIT ?
     `, like, limit)
@@ -1191,7 +1200,7 @@ func SuggestPathDirs(db *sql.DB, prefix string, limit int) ([]string, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 25
 	}
-	like := strings.TrimSpace(prefix) + "%"
+	like := "%" + escapeLikePattern(strings.TrimSpace(prefix)) + "%"
 	// Fetch a larger sample of matching paths then reduce to unique directories
 	sampleLimit := limit * 10
 	if sampleLimit < 100 {
@@ -1200,7 +1209,7 @@ func SuggestPathDirs(db *sql.DB, prefix string, limit int) ([]string, error) {
 	rows, err := db.Query(`
         SELECT DISTINCT path
         FROM media
-        WHERE path LIKE ?
+        WHERE path LIKE ? ESCAPE '\'
         ORDER BY path
         LIMIT ?
     `, like, sampleLimit)
@@ -1230,8 +1239,8 @@ func SuggestPathDirs(db *sql.DB, prefix string, limit int) ([]string, error) {
 				d += "/"
 			}
 		}
-		// Filter again by prefix (case sensitive) to match input style
-		if strings.HasPrefix(strings.ToLower(d), strings.ToLower(prefix)) || strings.HasPrefix(d, prefix) {
+		// Filter again by substring (case-insensitive) to match input style
+		if prefix == "" || strings.Contains(strings.ToLower(d), strings.ToLower(prefix)) {
 			dirSet[d] = struct{}{}
 		}
 	}
