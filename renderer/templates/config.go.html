@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shrike Configuration</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
@@ -10,6 +11,12 @@
         max-width: 900px;
         margin: 0 auto;
         padding: 20px;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
       }
       .card {
         background-color: #2d2d2d;
@@ -47,6 +54,7 @@
         display: flex;
         gap: 10px;
         margin-top: 12px;
+        flex-wrap: wrap;
       }
       .btn {
         padding: 8px 16px;
@@ -71,6 +79,22 @@
       nav a {
         color: #61dafb;
         margin-right: 20px;
+      }
+
+      @media screen and (max-width: 800px) {
+        .container {
+          padding: 12px;
+        }
+        h1 {
+          font-size: 1.4em;
+        }
+        .btn {
+          font-size: 0.95em;
+        }
+        .actions .btn {
+          flex: 1 1 auto;
+          min-width: 140px;
+        }
       }
     </style>
   </head>

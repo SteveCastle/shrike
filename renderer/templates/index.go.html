@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shrike Job Manager</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
@@ -10,6 +11,13 @@
         max-width: 1200px;
         margin: 0 auto;
         padding: 20px;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
       }
 
       .jobs-table {
@@ -48,6 +56,18 @@
         display: flex;
         align-items: center;
         overflow: hidden;
+      }
+
+      #uri {
+        width: 100%;
+        padding: 10px 12px;
+        box-sizing: border-box;
+        border-radius: 4px;
+        border: 1px solid #333;
+        background-color: #111;
+        color: #d4d4d4;
+        font-family: monospace;
+        font-size: 16px;
       }
 
       .jobs-cell.state {
@@ -89,6 +109,18 @@
 
       /* Responsive adjustments */
       @media screen and (max-width: 800px) {
+        .jobs-container {
+          padding: 12px;
+        }
+
+        nav {
+          gap: 8px;
+        }
+
+        h1 {
+          font-size: 1.4em;
+        }
+
         .jobs-header,
         .jobs-row {
           grid-template-columns: 1fr;
@@ -109,6 +141,16 @@
 
         .jobs-header {
           display: none;
+        }
+
+        .jobs-cell.actions {
+          justify-content: stretch;
+          gap: 8px;
+        }
+
+        .jobs-cell.actions button {
+          flex: 1 1 auto;
+          min-width: 120px;
         }
       }
     </style>

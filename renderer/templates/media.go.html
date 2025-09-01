@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shrike Media Browser</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
@@ -10,6 +11,13 @@
         max-width: 1200px;
         margin: 0 auto;
         padding: 20px;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
       }
 
       .media-table {
@@ -504,15 +512,41 @@
 
       /* Responsive adjustments */
       @media screen and (max-width: 800px) {
+        .media-container {
+          padding: 12px;
+        }
+
+        h1 {
+          font-size: 1.4em;
+        }
+
+        .view-toggle {
+          flex-wrap: wrap;
+          row-gap: 8px;
+        }
+
+        .toggle-btn {
+          padding: 8px 14px;
+        }
+
         .media-header,
         .media-row {
           grid-template-columns: 1fr;
           gap: 0;
         }
 
+        .media-row {
+          background-color: #2d2d2d;
+          border: 1px solid #333;
+          border-radius: 8px;
+          margin: 10px 0;
+        }
+
         .media-cell {
           padding: 5px 10px;
           border-bottom: 1px dotted #444;
+          white-space: normal;
+          align-items: flex-start;
         }
 
         .media-cell:before {
@@ -554,6 +588,28 @@
         .bulk-actions-form select,
         .bulk-actions-form button {
           width: 100%;
+        }
+
+        /* Grid: single column full-width items */
+        .media-grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .grid-item {
+          border-radius: 10px;
+        }
+
+        .grid-thumb {
+          touch-action: manipulation;
+        }
+
+        /* Larger, easier-to-tap checkboxes */
+        .media-cell.checkbox input[type="checkbox"],
+        .grid-select input[type="checkbox"],
+        #select-all,
+        #grid-select-all {
+          transform: scale(1.25);
         }
 
         /* Metadata options responsive */

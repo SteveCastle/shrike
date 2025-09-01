@@ -20,6 +20,13 @@
         padding: 20px;
       }
 
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+
       header {
         background: #333;
         padding: 1em;
@@ -249,6 +256,27 @@
         }
         100% {
           transform: rotate(360deg);
+        }
+      }
+
+      @media screen and (max-width: 800px) {
+        .detail-container {
+          padding: 12px;
+        }
+        h1 {
+          font-size: 1.4em;
+        }
+        header {
+          padding: 0.8em;
+        }
+        .command-section {
+          gap: 0.4em;
+        }
+        .terminal {
+          height: 50vh;
+        }
+        button {
+          margin-left: 0.5em;
         }
       }
     </style>
