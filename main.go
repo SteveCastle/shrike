@@ -912,7 +912,7 @@ func main() {
 	log.Println("Initializing job queue with database persistence...")
 	queue := jobqueue.NewQueueWithDB(db)
 	log.Printf("Job queue initialized. Current jobs: %d", len(queue.GetJobs()))
-	runners.New(queue, 2)
+	runners.New(queue, 1)
 
 	// ––– create dependencies struct –––
 	deps = &Dependencies{

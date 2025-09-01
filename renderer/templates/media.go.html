@@ -241,6 +241,24 @@
         pointer-events: none;
       }
 
+      .grid-select {
+        position: absolute;
+        left: 6px;
+        top: 6px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 4px;
+        padding: 4px;
+        z-index: 2;
+      }
+      .grid-select input[type="checkbox"] {
+        transform: scale(1.2);
+        cursor: pointer;
+      }
+      .grid-item.selected {
+        outline: 2px solid #61dafb;
+        box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.3) inset;
+      }
+
       /* Lightbox overlay */
       .lightbox {
         position: fixed;
@@ -548,6 +566,77 @@
       </div>
 
       <div
+        id="grid-select-bar"
+        class="view-toggle"
+        style="display: none; margin-bottom: 10px"
+      >
+        <label
+          style="
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #aaa;
+            font-size: 0.9em;
+            cursor: pointer;
+          "
+        >
+          <input
+            type="checkbox"
+            id="grid-select-all"
+            onchange="toggleSelectAll(this)"
+          />
+          Select all
+        </label>
+        <label
+          style="
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #aaa;
+            font-size: 0.9em;
+            cursor: pointer;
+          "
+        >
+          <input type="checkbox" class="apply-to-query" />
+          Apply to all items matching current search
+        </label>
+      </div>
+
+      <!-- Global Select/Apply bar for table view -->
+      <div id="table-apply-bar" class="view-toggle" style="margin-bottom: 10px">
+        <label
+          style="
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #aaa;
+            font-size: 0.9em;
+            cursor: pointer;
+          "
+        >
+          <input
+            type="checkbox"
+            id="table-select-all"
+            onchange="toggleSelectAll(this)"
+          />
+          Select all
+        </label>
+        <label
+          style="
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #aaa;
+            font-size: 0.9em;
+            cursor: pointer;
+          "
+        >
+          <input type="checkbox" class="apply-to-query" />
+          Apply to all items matching current search
+        </label>
+      </div>
+
+      <div
         style="
           margin: 20px 0;
           padding: 15px;
@@ -614,8 +703,12 @@
           • <code>category:"nature" AND tag:"sunset"</code> - Nature category
           with sunset tag<br />
           • <code>NOT tag:"portrait"</code> - Media without portrait tag<br />
+          • <code>tags:none</code> - Media with no tags at all<br />
+          • <code>pathdir:"/some/directory/"</code> - In directory (no
+          subdirs)<br />
           • <code>tag:"*flower*" OR category:"garden"</code> - Flower tags or
           garden category<br />
+          • <code>tagcount:>2</code> - Media with more than 2 tags<br />
           • <code>NOT hash:""</code> - Files with hash values<br />
           • <code>path:"*video*" OR path:"*movie*"</code> - Paths containing
           "video" or "movie"
@@ -979,14 +1072,33 @@
 
       function updateSelection() {
         selectedItems.clear();
-        const checkboxes = document.querySelectorAll(".media-checkbox:checked");
-        checkboxes.forEach((cb) => selectedItems.add(cb.value));
+        const allCheckboxes = document.querySelectorAll(".media-checkbox");
+        allCheckboxes.forEach((cb) => {
+          if (cb.checked) {
+            selectedItems.add(cb.value);
+          }
+        });
 
+        // Keep duplicate checkboxes (table/grid) in sync
+        allCheckboxes.forEach((cb) => {
+          cb.checked = selectedItems.has(cb.value);
+        });
+
+        // Update grid item selected styling
+        document.querySelectorAll("#media-grid .grid-item").forEach((el) => {
+          const path = el.getAttribute("data-path");
+          if (selectedItems.has(path)) {
+            el.classList.add("selected");
+          } else {
+            el.classList.remove("selected");
+          }
+        });
+
+        // Update bulk actions panel
         const count = selectedItems.size;
         document.getElementById(
           "selected-count"
         ).textContent = `${count} selected`;
-
         const bulkActions = document.getElementById("bulk-actions");
         if (count > 0) {
           bulkActions.classList.add("show");
@@ -994,19 +1106,33 @@
           bulkActions.classList.remove("show");
         }
 
-        // Update select-all checkbox state
-        const allCheckboxes = document.querySelectorAll(".media-checkbox");
-        const selectAllCheckbox = document.getElementById("select-all");
-        if (count === 0) {
-          selectAllCheckbox.indeterminate = false;
-          selectAllCheckbox.checked = false;
-        } else if (count === allCheckboxes.length) {
-          selectAllCheckbox.indeterminate = false;
-          selectAllCheckbox.checked = true;
-        } else {
-          selectAllCheckbox.indeterminate = true;
-          selectAllCheckbox.checked = false;
-        }
+        // Update select-all checkbox state (both table and grid)
+        const uniqueTotal = Array.from(allCheckboxes).reduce((set, cb) => {
+          set.add(cb.value);
+          return set;
+        }, new Set()).size;
+
+        const tableSelectAll = document.getElementById("select-all");
+        const gridSelectAll = document.getElementById("grid-select-all");
+        const tableTopSelectAll = document.getElementById("table-select-all");
+
+        const setSelectAllState = (el) => {
+          if (!el) return;
+          if (count === 0) {
+            el.indeterminate = false;
+            el.checked = false;
+          } else if (count === uniqueTotal) {
+            el.indeterminate = false;
+            el.checked = true;
+          } else {
+            el.indeterminate = true;
+            el.checked = false;
+          }
+        };
+
+        setSelectAllState(tableSelectAll);
+        setSelectAllState(gridSelectAll);
+        setSelectAllState(tableTopSelectAll);
       }
 
       function toggleSelectAll(checkbox) {
@@ -1019,7 +1145,7 @@
 
       function clearSelection() {
         const checkboxes = document.querySelectorAll(
-          ".media-checkbox, #select-all"
+          ".media-checkbox, #select-all, #grid-select-all, #table-select-all"
         );
         checkboxes.forEach((cb) => {
           cb.checked = false;
@@ -1058,14 +1184,25 @@
           const overwriteCheckbox =
             document.getElementById("overwrite-checkbox");
           const executeButton = document.getElementById("execute-button");
+          const applyToQuery = isApplyToQueryEnabled();
 
           if (!selectedTask) {
             alert("Please select a task to execute");
             return;
           }
 
-          if (selectedItems.size === 0) {
-            alert("Please select at least one media item");
+          const applyAllowedTasks = ["metadata", "autotag", "move", "remove"];
+          if (
+            selectedItems.size === 0 &&
+            !(
+              applyAllowedTasks.includes(selectedTask) &&
+              applyToQuery &&
+              currentSearchQuery
+            )
+          ) {
+            alert(
+              "Please select at least one media item or enable 'Apply to all items matching current search'"
+            );
             return;
           }
 
@@ -1077,7 +1214,19 @@
           if (selectedTask === "remove") {
             command = "remove";
             args = [];
-            input = Array.from(selectedItems).join("\n");
+            if (applyToQuery && currentSearchQuery) {
+              try {
+                const encQuery = btoa(
+                  unescape(encodeURIComponent(currentSearchQuery))
+                );
+                args.push("--query64=" + encQuery);
+              } catch (e) {
+                args.push("--query", currentSearchQuery);
+              }
+              input = "";
+            } else {
+              input = Array.from(selectedItems).join("\n");
+            }
           } else if (selectedTask === "move") {
             command = "move";
             args = [];
@@ -1105,8 +1254,21 @@
               args.push("--prefix", pathPrefix);
             }
 
-            // Create newline-separated list of files
-            input = Array.from(selectedItems).join("\n");
+            // If applying to current search, pass the query and no explicit paths
+            if (applyToQuery && currentSearchQuery) {
+              try {
+                const encQuery = btoa(
+                  unescape(encodeURIComponent(currentSearchQuery))
+                );
+                args.push("--query64=" + encQuery);
+              } catch (e) {
+                args.push("--query", currentSearchQuery);
+              }
+              input = "";
+            } else {
+              // Create newline-separated list of files
+              input = Array.from(selectedItems).join("\n");
+            }
           } else if (selectedTask === "metadata") {
             command = "metadata";
             args = [];
@@ -1156,12 +1318,38 @@
               args.push("--overwrite");
             }
 
-            input = Array.from(selectedItems).join("\n");
+            // If applying to current search, pass the query and no explicit paths
+            if (applyToQuery && currentSearchQuery) {
+              try {
+                const encQuery = btoa(
+                  unescape(encodeURIComponent(currentSearchQuery))
+                );
+                args.push("--query64=" + encQuery);
+              } catch (e) {
+                // Fallback to plain query if encoding fails
+                args.push("--query", currentSearchQuery);
+              }
+              input = "";
+            } else {
+              input = Array.from(selectedItems).join("\n");
+            }
           } else if (selectedTask === "autotag") {
             command = "autotag";
             args = [];
-            // Pass comma-separated list to support multi-file in one task
-            input = Array.from(selectedItems).join(",");
+            if (applyToQuery && currentSearchQuery) {
+              try {
+                const encQuery = btoa(
+                  unescape(encodeURIComponent(currentSearchQuery))
+                );
+                args.push("--query64=" + encQuery);
+              } catch (e) {
+                args.push("--query", currentSearchQuery);
+              }
+              input = "";
+            } else {
+              // Pass comma-separated list to support multi-file in one task
+              input = Array.from(selectedItems).join(",");
+            }
           }
 
           // Disable the button
@@ -1632,6 +1820,13 @@
         gridBtn.addEventListener("click", () => setViewMode("grid"));
         initViewMode();
 
+        // Keep global apply-to-query checkboxes in sync
+        document.querySelectorAll(".apply-to-query").forEach((cb) => {
+          cb.addEventListener("change", function () {
+            setApplyToQueryEnabled(this.checked);
+          });
+        });
+
         setTimeout(() => {
           if (
             document.documentElement.offsetHeight <= window.innerHeight &&
@@ -1708,18 +1903,40 @@
         const gridEl = document.getElementById("media-grid");
         const tableBtn = document.getElementById("view-table");
         const gridBtn = document.getElementById("view-grid");
+        const gridSelectBar = document.getElementById("grid-select-bar");
+        const tableApplyBar = document.getElementById("table-apply-bar");
         if (currentViewMode === "grid") {
           tableEl.style.display = "none";
           gridEl.style.display = "grid";
           tableBtn.classList.remove("active");
           gridBtn.classList.add("active");
+          if (gridSelectBar) gridSelectBar.style.display = "flex";
+          if (tableApplyBar) tableApplyBar.style.display = "none";
           ensureGridInitialized();
         } else {
           tableEl.style.display = "block";
           gridEl.style.display = "none";
           gridBtn.classList.remove("active");
           tableBtn.classList.add("active");
+          if (gridSelectBar) gridSelectBar.style.display = "none";
+          if (tableApplyBar) tableApplyBar.style.display = "flex";
         }
+      }
+
+      function getApplyToQueryCheckboxes() {
+        return document.querySelectorAll(".apply-to-query");
+      }
+
+      function isApplyToQueryEnabled() {
+        const cbs = getApplyToQueryCheckboxes();
+        return Array.from(cbs).some((cb) => cb.checked);
+      }
+
+      function setApplyToQueryEnabled(checked) {
+        const cbs = getApplyToQueryCheckboxes();
+        cbs.forEach((cb) => {
+          cb.checked = checked;
+        });
       }
 
       function ensureGridInitialized() {
@@ -1753,6 +1970,9 @@
         document.querySelectorAll("#media-grid .grid-item").forEach((el) => {
           gridObserver.observe(el);
         });
+
+        // Sync selection UI for newly created grid items
+        updateSelection();
       }
 
       function appendGridItem(path) {
@@ -1762,11 +1982,29 @@
         item.className = "grid-item";
         item.setAttribute("data-path", path);
         item.setAttribute("data-loaded", "0");
+        const selectWrap = document.createElement("div");
+        selectWrap.className = "grid-select";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "media-checkbox";
+        cb.value = path;
+        cb.addEventListener("click", (e) => e.stopPropagation());
+        cb.addEventListener("change", (e) => {
+          e.stopPropagation();
+          updateSelection();
+        });
+        selectWrap.appendChild(cb);
+        item.appendChild(selectWrap);
         const badge = document.createElement("div");
         badge.className = "grid-badge";
         badge.textContent = isVideoFile(path) ? "Video" : "Image";
         item.appendChild(badge);
         item.addEventListener("click", () => openLightbox(path));
+        // If already selected, reflect state
+        if (selectedItems.has(path)) {
+          cb.checked = true;
+          item.classList.add("selected");
+        }
         grid.appendChild(item);
         if (gridObserver) {
           gridObserver.observe(item);

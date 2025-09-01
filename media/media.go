@@ -292,6 +292,21 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 		switch condition.Column {
 		case "path":
 			columnName = "m.path"
+		case "tags":
+			// Support querying media with no tags via tags:none
+			val := strings.ToLower(strings.TrimSpace(condition.Value))
+			if val == "none" {
+				if condition.Negate {
+					// NOT tags:none => items having at least one tag
+					clause = "EXISTS (\n\t\t\t\t\tSELECT 1 FROM media_tag_by_category mtbc WHERE mtbc.media_path = m.path\n\t\t\t\t)"
+				} else {
+					// tags:none => items with zero tags
+					clause = "NOT EXISTS (\n\t\t\t\t\tSELECT 1 FROM media_tag_by_category mtbc WHERE mtbc.media_path = m.path\n\t\t\t\t)"
+				}
+			} else {
+				// Unknown tags:* value, skip condition
+				continue
+			}
 		case "pathdir":
 			// Special handling for pathdir - search in directory but not subdirectories
 			// Extract path separator from prefixed format
@@ -312,11 +327,11 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 
 			if condition.Negate {
 				// For NOT pathdir, exclude items in the specified directory
-				clause = fmt.Sprintf("NOT (m.path LIKE ? AND m.path NOT LIKE ?)")
+				clause = "NOT (m.path LIKE ? AND m.path NOT LIKE ?)"
 				args = append(args, actualPath+"%", actualPath+"%"+pathSep+"%")
 			} else {
 				// For pathdir, include items in the specified directory but not subdirectories
-				clause = fmt.Sprintf("(m.path LIKE ? AND m.path NOT LIKE ?)")
+				clause = "(m.path LIKE ? AND m.path NOT LIKE ?)"
 				args = append(args, actualPath+"%", actualPath+"%"+pathSep+"%")
 			}
 		case "description":
@@ -329,6 +344,26 @@ func buildWhereClause(sq *SearchQuery) (string, []interface{}, bool, []SearchCon
 			columnName = "m.width"
 		case "height":
 			columnName = "m.height"
+		case "tagcount":
+			// Filter by number of tags associated with a media item
+			// Build a correlated subquery counting tags for this media path
+			op := condition.Operator
+			if op == "LIKE" {
+				// LIKE doesn't make sense for numeric comparison; treat as equality
+				op = "="
+			}
+			countExpr := `(SELECT COUNT(*) FROM media_tag_by_category mtbc WHERE mtbc.media_path = m.path)`
+			// Parse numeric value
+			if val, err := strconv.ParseInt(condition.Value, 10, 64); err == nil {
+				clause = fmt.Sprintf("%s %s ?", countExpr, op)
+				args = append(args, val)
+				if condition.Negate {
+					clause = "NOT (" + clause + ")"
+				}
+			} else {
+				// Invalid numeric, skip this condition
+				continue
+			}
 		case "tag":
 			if condition.Negate {
 				// For NOT tag searches, use NOT EXISTS subquery

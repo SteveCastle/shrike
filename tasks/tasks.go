@@ -49,7 +49,7 @@ func init() {
 	RegisterTask("gallery-dl", "gallery-dl", executeCommand)
 	RegisterTask("dce", "dce", executeCommand)
 	RegisterTask("yt-dlp", "yt-dlp", executeCommand)
-	RegisterTask("ffmpeg", "ffmpeg", executeCommand)
+	RegisterTask("ffmpeg", "ffmpeg", ffmpegTask)
 	RegisterTask("remove", "Remove Media", removeFromDB)
 	RegisterTask("cleanup", "CleanUp", cleanUpFn)
 	RegisterTask("ingest", "Ingest Media Files", ingestTask)
@@ -265,24 +265,36 @@ func waitFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 func removeFromDB(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	ctx := j.Ctx
 
-	// Parse newline-separated paths from input
-	pathsStr := strings.TrimSpace(j.Input)
-	if pathsStr == "" {
-		q.PushJobStdout(j.ID, "No paths provided for removal")
-		q.CompleteJob(j.ID)
-		return nil
-	}
-
-	rawPaths := strings.Split(pathsStr, "\n")
+	// Determine file list via query or explicit input
 	var paths []string
-	for _, path := range rawPaths {
-		cleanPath := strings.TrimSpace(path)
-		if cleanPath != "" {
-			paths = append(paths, cleanPath)
+	if qstr, ok := extractQueryFromJob(j); ok {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Using query to select files: %s", qstr))
+		mediaPaths, err := getMediaPathsByQuery(q.Db, qstr)
+		if err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Error loading media paths for query: %v", err))
+			q.ErrorJob(j.ID)
+			return err
+		}
+		paths = mediaPaths
+	} else {
+		// Parse newline-separated paths from input
+		pathsStr := strings.TrimSpace(j.Input)
+		if pathsStr == "" {
+			q.PushJobStdout(j.ID, "No paths provided for removal")
+			q.CompleteJob(j.ID)
+			return nil
+		}
+
+		rawPaths := strings.Split(pathsStr, "\n")
+		for _, path := range rawPaths {
+			cleanPath := strings.TrimSpace(path)
+			if cleanPath != "" {
+				paths = append(paths, cleanPath)
+			}
 		}
 	}
 
-	q.PushJobStdout(j.ID, fmt.Sprintf("Starting removal of media items from database"))
+	q.PushJobStdout(j.ID, "Starting removal of media items from database")
 
 	// Use the abstracted media removal function
 	result, err := media.RemoveItemsFromDB(ctx, q.Db, paths)
@@ -339,7 +351,7 @@ func cleanUpFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	if result.MediaItemsRemoved == 0 {
 		q.PushJobStdout(j.ID, "No orphaned media items found - database is clean!")
 	} else {
-		q.PushJobStdout(j.ID, fmt.Sprintf("Cleanup completed successfully:"))
+		q.PushJobStdout(j.ID, "Cleanup completed successfully:")
 		q.PushJobStdout(j.ID, fmt.Sprintf("- Processed %d orphaned media items", len(result.ProcessedPaths)))
 		q.PushJobStdout(j.ID, fmt.Sprintf("- Removed %d media items from database", result.MediaItemsRemoved))
 		q.PushJobStdout(j.ID, fmt.Sprintf("- Removed %d tag associations", result.TagsRemoved))
@@ -545,11 +557,19 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	q.PushJobStdout(j.ID, fmt.Sprintf("Apply scope: %s", applyScope))
 	q.PushJobStdout(j.ID, fmt.Sprintf("Overwrite existing: %t", overwrite))
 
-	// Parse input as list of file paths
+	// Determine source of file list: query, explicit list, or entire DB
 	var filesToProcess []string
 	var err error
 
-	if strings.TrimSpace(j.Input) == "" {
+	if qstr, ok := extractQueryFromJob(j); ok {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Using query to select files: %s", qstr))
+		filesToProcess, err = getMediaPathsByQuery(q.Db, qstr)
+		if err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Error loading media paths for query: %v", err))
+			q.ErrorJob(j.ID)
+			return err
+		}
+	} else if strings.TrimSpace(j.Input) == "" {
 		// If no input provided, process all files from database
 		q.PushJobStdout(j.ID, "No file list provided - processing all files from database")
 		filesToProcess, err = getAllMediaPaths(q.Db)
@@ -559,41 +579,27 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			return err
 		}
 	} else {
-		// Parse input as file paths (newline separated)
-		input := strings.TrimSpace(j.Input)
-
-		// Split on newlines
-		rawPaths := strings.Split(input, "\n")
-
-		// Clean and validate file paths
-		for _, rawPath := range rawPaths {
-			cleanPath := strings.TrimSpace(rawPath)
-			if cleanPath == "" {
-				continue
-			}
-
+		// Parse input as file paths (newline and comma separated)
+		inputPaths := parseInputPaths(strings.TrimSpace(j.Input))
+		for _, p := range inputPaths {
 			// Convert to absolute path
-			absPath, err := filepath.Abs(cleanPath)
+			absPath, err := filepath.Abs(p)
 			if err == nil {
-				cleanPath = filepath.FromSlash(absPath)
+				p = filepath.FromSlash(absPath)
 			}
-
 			// Check if file exists
-			if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
-				q.PushJobStdout(j.ID, fmt.Sprintf("Warning: file does not exist: %s", cleanPath))
+			if _, err := os.Stat(p); os.IsNotExist(err) {
+				q.PushJobStdout(j.ID, fmt.Sprintf("Warning: file does not exist: %s", p))
 				continue
 			}
-
 			// Check if it's a media file
-			if !isMediaFile(cleanPath) {
-				q.PushJobStdout(j.ID, fmt.Sprintf("Warning: not a supported media file: %s", cleanPath))
+			if !isMediaFile(p) {
+				q.PushJobStdout(j.ID, fmt.Sprintf("Warning: not a supported media file: %s", p))
 				continue
 			}
-
-			filesToProcess = append(filesToProcess, cleanPath)
+			filesToProcess = append(filesToProcess, p)
 		}
-
-		q.PushJobStdout(j.ID, fmt.Sprintf("Processing files from input list"))
+		q.PushJobStdout(j.ID, "Processing files from input list")
 	}
 
 	if len(filesToProcess) == 0 {
@@ -790,6 +796,241 @@ func getAllMediaPaths(db *sql.DB) ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+// getMediaPathsByQuery retrieves all media paths matching a search query using the media package
+func getMediaPathsByQuery(db *sql.DB, query string) ([]string, error) {
+	const pageSize = 1000
+	offset := 0
+	var paths []string
+
+	for {
+		items, hasMore, err := media.GetItems(db, offset, pageSize, query)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range items {
+			paths = append(paths, it.Path)
+		}
+		if !hasMore {
+			break
+		}
+		offset += pageSize
+	}
+	return paths, nil
+}
+
+// extractQueryFromJob checks args and input for a query string
+// Supported forms:
+//   - Argument flag: --query "..." or -q "..." or --query=... or -q=...
+//   - Input prefix:  "query:..." or "q:..."
+func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
+	// Check arguments
+	for i := 0; i < len(j.Arguments); i++ {
+		arg := j.Arguments[i]
+		lower := strings.ToLower(arg)
+		// Prefer base64-encoded query if provided
+		if strings.HasPrefix(lower, "--query64=") {
+			enc := arg[len("--query64="):]
+			if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
+				return string(dec), true
+			}
+		}
+		if lower == "--query64" || lower == "-q64" || lower == "-Q" {
+			if i+1 < len(j.Arguments) {
+				enc := j.Arguments[i+1]
+				if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
+					return string(dec), true
+				}
+			}
+		}
+		if lower == "--query" || lower == "-q" {
+			if i+1 < len(j.Arguments) {
+				start := i + 1
+				end := start
+				for end < len(j.Arguments) {
+					next := j.Arguments[end]
+					if strings.HasPrefix(next, "-") && end > start { // stop at next flag once we have at least one token
+						break
+					}
+					end++
+				}
+				return strings.Join(j.Arguments[start:end], " "), true
+			}
+		}
+		if strings.HasPrefix(lower, "--query=") {
+			return arg[len("--query="):], true
+		}
+		if strings.HasPrefix(lower, "-q=") {
+			return arg[len("-q="):], true
+		}
+	}
+
+	// Check input prefix
+	input := strings.TrimSpace(j.Input)
+	if input != "" {
+		// Also support --query64 in raw input preserving exact bytes
+		if idx := strings.Index(strings.ToLower(input), "--query64="); idx != -1 {
+			enc := input[idx+len("--query64="):]
+			// trim at next space if present
+			if sp := strings.IndexAny(enc, " \t\n\r"); sp != -1 {
+				enc = enc[:sp]
+			}
+			if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
+				return string(dec), true
+			}
+		}
+		lower := strings.ToLower(input)
+		if strings.HasPrefix(lower, "query:") {
+			return strings.TrimSpace(input[len("query:"):]), true
+		}
+		if strings.HasPrefix(lower, "q:") {
+			return strings.TrimSpace(input[len("q:"):]), true
+		}
+
+		// If the entire command line was placed in input, try to extract --query/-q
+		tokens := tokenizeCommandLine(input)
+		for i := 0; i < len(tokens); i++ {
+			lt := strings.ToLower(tokens[i])
+			// Handle base64 query in tokenized input
+			if lt == "--query64" || lt == "-q64" || lt == "-q" {
+				if i+1 < len(tokens) {
+					start := i + 1
+					end := start
+					for end < len(tokens) {
+						next := tokens[end]
+						if strings.HasPrefix(next, "-") && end > start {
+							break
+						}
+						end++
+					}
+					joined := strings.Join(tokens[start:end], " ")
+					if lt == "--query64" || lt == "-q64" {
+						if dec, err := base64.StdEncoding.DecodeString(joined); err == nil {
+							return string(dec), true
+						}
+					} else {
+						return joined, true
+					}
+				}
+			}
+			if lt == "--query" || lt == "-q" {
+				if i+1 < len(tokens) {
+					start := i + 1
+					end := start
+					for end < len(tokens) {
+						next := tokens[end]
+						if strings.HasPrefix(next, "-") && end > start {
+							break
+						}
+						end++
+					}
+					return strings.Join(tokens[start:end], " "), true
+				}
+			}
+			if strings.HasPrefix(lt, "--query=") {
+				return tokens[i][len("--query="):], true
+			}
+			if strings.HasPrefix(lt, "--query64=") {
+				enc := tokens[i][len("--query64="):]
+				if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
+					return string(dec), true
+				}
+			}
+			if strings.HasPrefix(lt, "-q=") {
+				return tokens[i][len("-q="):], true
+			}
+			if strings.HasPrefix(lt, "-q64=") {
+				enc := tokens[i][len("-q64="):]
+				if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
+					return string(dec), true
+				}
+			}
+		}
+
+		// Heuristic: if input looks like a media search query (e.g., pathdir:..., tag:..., size:>..), treat it as query
+		if looksLikeSearchQuery(input) {
+			return input, true
+		}
+	}
+
+	return "", false
+}
+
+// tokenizeCommandLine splits a command line string into tokens, respecting simple quotes
+func tokenizeCommandLine(s string) []string {
+	var tokens []string
+	var b strings.Builder
+	inQuotes := false
+	quoteChar := byte(0)
+
+	flush := func() {
+		if b.Len() > 0 {
+			tokens = append(tokens, b.String())
+			b.Reset()
+		}
+	}
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inQuotes {
+			if c == quoteChar {
+				inQuotes = false
+				continue
+			}
+			b.WriteByte(c)
+			continue
+		}
+		if c == '"' || c == '\'' {
+			inQuotes = true
+			quoteChar = c
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			flush()
+			continue
+		}
+		b.WriteByte(c)
+	}
+	flush()
+	return tokens
+}
+
+// looksLikeSearchQuery does a simple check for known media search fields
+func looksLikeSearchQuery(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return false
+	}
+	// Common operators and field prefixes
+	if strings.Contains(lower, " and ") || strings.Contains(lower, " or ") {
+		return true
+	}
+	fields := []string{"path:", "pathdir:", "tag:", "category:", "size:", "description:", "width:", "height:", "exists:", "hash:"}
+	for _, f := range fields {
+		if strings.Contains(lower, f) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseInputPaths parses newline and comma separated file paths from j.Input
+func parseInputPaths(raw string) []string {
+	var paths []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		for _, part := range strings.Split(line, ",") {
+			p := strings.Trim(strings.TrimSpace(part), `"'`)
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+	}
+	return paths
 }
 
 // insertMediaRecord inserts a basic media record into the database
@@ -1400,28 +1641,39 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return fmt.Errorf("no target directory specified")
 	}
 
-	// Parse newline-separated paths from input with better handling
-	pathsStr := strings.TrimSpace(j.Input)
-	if pathsStr == "" {
-		q.PushJobStdout(j.ID, "No paths provided for moving")
-		q.CompleteJob(j.ID)
-		return nil
-	}
-
-	// Split by newline and clean each path more thoroughly
-	rawPaths := strings.Split(pathsStr, "\n")
+	// Build source path list from query or input
 	var cleanedPaths []string
-
-	for _, rawPath := range rawPaths {
-		cleanPath := strings.TrimSpace(rawPath)
-		if cleanPath == "" {
-			continue
+	if qstr, ok := extractQueryFromJob(j); ok {
+		q.PushJobStdout(j.ID, fmt.Sprintf("Using query to select files: %s", qstr))
+		mediaPaths, err := getMediaPathsByQuery(q.Db, qstr)
+		if err != nil {
+			q.PushJobStdout(j.ID, fmt.Sprintf("Error loading media paths for query: %v", err))
+			q.ErrorJob(j.ID)
+			return err
+		}
+		cleanedPaths = mediaPaths
+	} else {
+		// Parse newline-separated paths from input with better handling
+		pathsStr := strings.TrimSpace(j.Input)
+		if pathsStr == "" {
+			q.PushJobStdout(j.ID, "No paths provided for moving")
+			q.CompleteJob(j.ID)
+			return nil
 		}
 
-		// Remove any surrounding quotes that might be present
-		cleanPath = strings.Trim(cleanPath, `"'`)
-		if cleanPath != "" {
-			cleanedPaths = append(cleanedPaths, cleanPath)
+		// Split by newline and clean each path more thoroughly
+		rawPaths := strings.Split(pathsStr, "\n")
+		for _, rawPath := range rawPaths {
+			cleanPath := strings.TrimSpace(rawPath)
+			if cleanPath == "" {
+				continue
+			}
+
+			// Remove any surrounding quotes that might be present
+			cleanPath = strings.Trim(cleanPath, `"'`)
+			if cleanPath != "" {
+				cleanedPaths = append(cleanedPaths, cleanPath)
+			}
 		}
 	}
 
@@ -1883,11 +2135,28 @@ func ensureTagsExist(db *sql.DB, tags []TagInfo) error {
 // autotagTask runs onnxtag.exe and writes suggested tag assignments
 func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	ctx := j.Ctx
-	raw := strings.TrimSpace(j.Input)
-	if raw == "" {
-		q.PushJobStdout(j.ID, "autotag: no image path provided in job input")
-		q.CompleteJob(j.ID)
-		return nil
+
+	// Determine source paths: query or input list
+	var paths []string
+	if qstr, ok := extractQueryFromJob(j); ok {
+		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: using query to select files: %s", qstr))
+		mediaPaths, err := getMediaPathsByQuery(q.Db, qstr)
+		if err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to load paths from query: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		paths = mediaPaths
+	} else {
+		raw := strings.TrimSpace(j.Input)
+		if raw == "" {
+			q.PushJobStdout(j.ID, "autotag: no image path provided in job input or query flag")
+			q.CompleteJob(j.ID)
+			return nil
+		}
+
+		// Accept comma-separated or newline-separated list of files
+		paths = parseInputPaths(raw)
 	}
 
 	// Ensure the Suggested category exists
@@ -1897,23 +2166,6 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return err
 	}
 
-	// Accept comma-separated or newline-separated list of files
-	// Normalize into a slice of paths
-	var paths []string
-	// First split on newlines
-	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Then split each line by comma
-		for _, part := range strings.Split(line, ",") {
-			p := strings.TrimSpace(part)
-			if p != "" {
-				paths = append(paths, p)
-			}
-		}
-	}
 	if len(paths) == 0 {
 		q.PushJobStdout(j.ID, "autotag: no valid paths parsed from input")
 		q.CompleteJob(j.ID)
@@ -1941,8 +2193,16 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] tagging %s", idx+1, len(paths), imagePath))
 
-		// Launch onnxtag.exe
-		cmd := exec.CommandContext(ctx, "onnxtag.exe", args...)
+		// Launch onnxtag via embedded exec (falls back to system PATH)
+		cmd, cleanup, err := embedexec.GetExec(ctx, "onnxtag", args...)
+		if err != nil {
+			q.PushJobStdout(j.ID, "autotag: failed to prepare onnxtag: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		if cleanup != nil {
+			defer cleanup()
+		}
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			q.PushJobStdout(j.ID, "autotag: failed to get stdout pipe: "+err.Error())
@@ -1955,8 +2215,19 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			q.ErrorJob(j.ID)
 			return err
 		}
+
+		// Drain stderr immediately to avoid pipe blocking
+		doneErr := make(chan struct{})
+		go func() {
+			s := bufio.NewScanner(stderr)
+			for s.Scan() {
+				_ = q.PushJobStdout(j.ID, "autotag stderr: "+s.Text())
+			}
+			close(doneErr)
+		}()
+
 		if err := cmd.Start(); err != nil {
-			q.PushJobStdout(j.ID, "autotag: failed to start onnxtag.exe: "+err.Error())
+			q.PushJobStdout(j.ID, "autotag: failed to start onnxtag: "+err.Error())
 			q.ErrorJob(j.ID)
 			return err
 		}
@@ -1972,14 +2243,7 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			}
 		}
 		_ = cmd.Wait()
-
-		// Drain stderr to job stdout for visibility
-		go func() {
-			s := bufio.NewScanner(stderr)
-			for s.Scan() {
-				_ = q.PushJobStdout(j.ID, "autotag stderr: "+s.Text())
-			}
-		}()
+		<-doneErr
 
 		if len(tags) == 0 {
 			q.PushJobStdout(j.ID, "autotag: no tags returned")
@@ -2008,6 +2272,169 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		}
 
 		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: wrote %d Suggested tags for %s", len(tagInfos), imagePath))
+	}
+
+	q.CompleteJob(j.ID)
+	return nil
+}
+
+// ffmpegTask runs ffmpeg per selected file. It accepts either a query (--query/--query64)
+// to select files from the DB, or newline/comma-separated explicit file paths in j.Input.
+// Arguments can include the following placeholders, which will be expanded per file:
+//
+//	{input}  - the absolute source file path
+//	{dir}    - directory of source file
+//	{base}   - base filename (with extension)
+//	{name}   - filename without extension
+//	{ext}    - extension including dot (e.g., .mp4)
+//	{idx}    - 1-based index of the file in the batch
+//
+// To output to the same folder, you can refer to {dir}\{name}_out{ext}, etc.
+func ffmpegTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	ctx := j.Ctx
+
+	// Resolve file list via query or explicit input
+	var files []string
+	if qstr, ok := extractQueryFromJob(j); ok {
+		q.PushJobStdout(j.ID, fmt.Sprintf("ffmpeg: using query to select files: %s", qstr))
+		mediaPaths, err := getMediaPathsByQuery(q.Db, qstr)
+		if err != nil {
+			q.PushJobStdout(j.ID, "ffmpeg: failed to load paths from query: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		files = mediaPaths
+	} else {
+		raw := strings.TrimSpace(j.Input)
+		if raw == "" {
+			q.PushJobStdout(j.ID, "ffmpeg: no input paths or query provided")
+			q.CompleteJob(j.ID)
+			return nil
+		}
+		files = parseInputPaths(raw)
+	}
+
+	if len(files) == 0 {
+		q.PushJobStdout(j.ID, "ffmpeg: no files to process")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	// The rest of the arguments are an ffmpeg argument template.
+	// We will build a per-file argument list by replacing placeholders.
+	// Example: -i {input} -c:v libx264 -crf 23 {dir}/{name}.mp4
+	templateArgs := make([]string, 0, len(j.Arguments))
+	for _, a := range j.Arguments {
+		templateArgs = append(templateArgs, a)
+	}
+	if len(templateArgs) == 0 {
+		q.PushJobStdout(j.ID, "ffmpeg: no arguments provided for ffmpeg")
+		q.CompleteJob(j.ID)
+		return nil
+	}
+
+	// Process each file
+	for idx, src := range files {
+		// Context check
+		select {
+		case <-ctx.Done():
+			q.PushJobStdout(j.ID, "ffmpeg: task canceled")
+			q.ErrorJob(j.ID)
+			return ctx.Err()
+		default:
+		}
+
+		abs := src
+		if a, err := filepath.Abs(src); err == nil {
+			abs = filepath.FromSlash(a)
+		}
+		dir := filepath.Dir(abs)
+		base := filepath.Base(abs)
+		ext := filepath.Ext(abs)
+		name := strings.TrimSuffix(base, ext)
+		idxStr := strconv.Itoa(idx + 1)
+
+		// Expand placeholders in a fresh slice
+		expanded := make([]string, len(templateArgs))
+		for i, ta := range templateArgs {
+			s := ta
+			s = strings.ReplaceAll(s, "{input}", abs)
+			s = strings.ReplaceAll(s, "{dir}", dir)
+			s = strings.ReplaceAll(s, "{base}", base)
+			s = strings.ReplaceAll(s, "{name}", name)
+			s = strings.ReplaceAll(s, "{ext}", ext)
+			s = strings.ReplaceAll(s, "{idx}", idxStr)
+			expanded[i] = s
+		}
+
+		// Ensure -i is present; if not, prepend -i {input}
+		hasInput := false
+		for _, e := range expanded {
+			if e == "-i" {
+				hasInput = true
+				break
+			}
+			if strings.Contains(e, "-i=") || strings.Contains(e, "-i:") { // uncommon forms
+				hasInput = true
+				break
+			}
+		}
+		finalArgs := expanded
+		if !hasInput {
+			finalArgs = append([]string{"-i", abs}, expanded...)
+		}
+
+		q.PushJobStdout(j.ID, "ffmpeg: running on "+base)
+
+		// Launch ffmpeg via embedded exec (falls back to system PATH)
+		cmd, cleanup, err := embedexec.GetExec(ctx, "ffmpeg", finalArgs...)
+		if err != nil {
+			q.PushJobStdout(j.ID, "ffmpeg: failed to prepare: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		if cleanup != nil {
+			defer cleanup()
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			q.PushJobStdout(j.ID, "ffmpeg: stdout pipe error: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			q.PushJobStdout(j.ID, "ffmpeg: stderr pipe error: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+
+		// Drain stderr to log ffmpeg progress/errors
+		doneErr := make(chan struct{})
+		go func() {
+			s := bufio.NewScanner(stderr)
+			for s.Scan() {
+				_ = q.PushJobStdout(j.ID, "ffmpeg: "+s.Text())
+			}
+			close(doneErr)
+		}()
+
+		if err := cmd.Start(); err != nil {
+			q.PushJobStdout(j.ID, "ffmpeg: failed to start: "+err.Error())
+			q.ErrorJob(j.ID)
+			return err
+		}
+
+		// Stream stdout too
+		scan := bufio.NewScanner(stdout)
+		for scan.Scan() {
+			_ = q.PushJobStdout(j.ID, scan.Text())
+		}
+		_ = cmd.Wait()
+		<-doneErr
+
+		q.PushJobStdout(j.ID, "ffmpeg: completed for "+base)
 	}
 
 	q.CompleteJob(j.ID)
