@@ -585,6 +585,58 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// mediaSuggestHandler serves suggestion data for typeahead search
+func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("kind")))
+		prefix := r.URL.Query().Get("prefix")
+		limitStr := r.URL.Query().Get("limit")
+		limit := 25
+		if limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 200 {
+				limit = parsed
+			}
+		}
+
+		type resp struct {
+			Suggestions []string `json:"suggestions"`
+		}
+
+		var suggestions []string
+		var err error
+
+		switch kind {
+		case "filters":
+			suggestions = media.SuggestFilters()
+		case "tag":
+			suggestions, err = media.SuggestTagLabels(deps.DB, prefix, limit)
+		case "category":
+			suggestions, err = media.SuggestCategoryLabels(deps.DB, prefix, limit)
+		case "path":
+			suggestions, err = media.SuggestPaths(deps.DB, prefix, limit)
+		case "pathdir":
+			suggestions, err = media.SuggestPathDirs(deps.DB, prefix, limit)
+		default:
+			http.Error(w, "unknown kind", http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
+			http.Error(w, "suggest error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp{Suggestions: suggestions})
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Config page handlers
 // -----------------------------------------------------------------------------
@@ -934,6 +986,7 @@ func main() {
 	mux.HandleFunc("/media", renderer.ApplyMiddlewares(mediaHandler(deps)))
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
+	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
 
 	// Serve embedded static files

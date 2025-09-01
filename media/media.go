@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1064,4 +1065,192 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 	}
 
 	return result, nil
+}
+
+// -----------------------------------------------------------------------------
+// Suggestions for typeahead search
+// -----------------------------------------------------------------------------
+
+// SuggestFilters returns supported filter keys for the search syntax
+func SuggestFilters() []string {
+	return []string{
+		"path",
+		"description",
+		"size",
+		"hash",
+		"width",
+		"height",
+		"tag",
+		"category",
+		"tags",
+		"tagcount",
+		"exists",
+		"pathdir",
+	}
+}
+
+// SuggestTagLabels returns distinct tag labels matching a prefix (case-insensitive)
+func SuggestTagLabels(db *sql.DB, prefix string, limit int) ([]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
+	like := strings.TrimSpace(prefix) + "%"
+	rows, err := db.Query(`
+        SELECT DISTINCT tag_label
+        FROM media_tag_by_category
+        WHERE tag_label LIKE ? COLLATE NOCASE
+        ORDER BY tag_label
+        LIMIT ?
+    `, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// SuggestCategoryLabels returns distinct category labels matching a prefix (case-insensitive)
+func SuggestCategoryLabels(db *sql.DB, prefix string, limit int) ([]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
+	like := strings.TrimSpace(prefix) + "%"
+	rows, err := db.Query(`
+        SELECT DISTINCT category_label
+        FROM media_tag_by_category
+        WHERE category_label LIKE ? COLLATE NOCASE
+        ORDER BY category_label
+        LIMIT ?
+    `, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// SuggestPaths returns distinct media paths matching a prefix (case-insensitive for ASCII)
+func SuggestPaths(db *sql.DB, prefix string, limit int) ([]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
+	like := strings.TrimSpace(prefix) + "%"
+	rows, err := db.Query(`
+        SELECT DISTINCT path
+        FROM media
+        WHERE path LIKE ?
+        ORDER BY path
+        LIMIT ?
+    `, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// SuggestPathDirs returns directory suggestions based on stored paths.
+// It computes directory prefixes in Go to avoid complex SQL.
+func SuggestPathDirs(db *sql.DB, prefix string, limit int) ([]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
+	like := strings.TrimSpace(prefix) + "%"
+	// Fetch a larger sample of matching paths then reduce to unique directories
+	sampleLimit := limit * 10
+	if sampleLimit < 100 {
+		sampleLimit = 100
+	}
+	rows, err := db.Query(`
+        SELECT DISTINCT path
+        FROM media
+        WHERE path LIKE ?
+        ORDER BY path
+        LIMIT ?
+    `, like, sampleLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	dirSet := make(map[string]struct{})
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		// Normalize to OS-specific separators present in data. Keep both cases.
+		d := filepath.Dir(p)
+		if d == "." || d == "" {
+			continue
+		}
+		// Ensure trailing separator for pathdir consistency
+		if strings.Contains(d, "\\") {
+			if !strings.HasSuffix(d, "\\") {
+				d += "\\"
+			}
+		} else {
+			if !strings.HasSuffix(d, "/") {
+				d += "/"
+			}
+		}
+		// Filter again by prefix (case sensitive) to match input style
+		if strings.HasPrefix(strings.ToLower(d), strings.ToLower(prefix)) || strings.HasPrefix(d, prefix) {
+			dirSet[d] = struct{}{}
+		}
+	}
+
+	// Collect up to limit results in lexical order
+	var out []string
+	for k := range dirSet {
+		out = append(out, k)
+	}
+	// Simple insertion sort for small slices
+	for i := 1; i < len(out); i++ {
+		j := i
+		for j > 0 && out[j-1] > out[j] {
+			out[j-1], out[j] = out[j], out[j-1]
+			j--
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }

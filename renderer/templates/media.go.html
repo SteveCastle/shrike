@@ -184,6 +184,43 @@
         font-style: italic;
       }
 
+      /* Typeahead */
+      .typeahead-wrap {
+        position: relative;
+        flex: 1;
+        display: flex;
+      }
+      .typeahead-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #1e1e1e;
+        border: 1px solid #444;
+        border-top: none;
+        max-height: 260px;
+        overflow-y: auto;
+        z-index: 100;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      }
+      .typeahead-item {
+        padding: 8px 10px;
+        font-family: monospace;
+        color: #d4d4d4;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .typeahead-item:hover,
+      .typeahead-item.active {
+        background: #2b2b2b;
+      }
+      .typeahead-item .hint {
+        color: #888;
+        font-size: 0.85em;
+      }
+
       /* View toggle */
       .view-toggle {
         display: flex;
@@ -648,21 +685,30 @@
           id="search-form"
           style="display: flex; gap: 10px; align-items: center"
         >
-          <input
-            type="text"
-            id="search-input"
-            placeholder='Search query (e.g., tag:"landscape" AND size:>1000000)'
-            value="{{.SearchQuery}}"
-            style="
-              flex: 1;
-              padding: 8px 12px;
-              background-color: #1e1e1e;
-              border: 1px solid #555;
-              color: #d4d4d4;
-              border-radius: 4px;
-              font-family: monospace;
-            "
-          />
+          <div class="typeahead-wrap">
+            <input
+              type="text"
+              id="search-input"
+              placeholder='Search query (e.g., tag:"landscape" AND size:>1000000)'
+              value="{{.SearchQuery}}"
+              autocomplete="off"
+              style="
+                flex: 1;
+                width: 100%;
+                padding: 8px 12px;
+                background-color: #1e1e1e;
+                border: 1px solid #555;
+                color: #d4d4d4;
+                border-radius: 4px;
+                font-family: monospace;
+              "
+            />
+            <div
+              id="typeahead-dropdown"
+              class="typeahead-dropdown"
+              style="display: none"
+            ></div>
+          </div>
           <button
             type="submit"
             style="
@@ -2435,6 +2481,326 @@
         }
         return template.content.firstChild;
       }
+
+      // -----------------------------
+      // Typeahead search
+      // -----------------------------
+      (function initTypeahead() {
+        const input = document.getElementById("search-input");
+        const dropdown = document.getElementById("typeahead-dropdown");
+        if (!input || !dropdown) return;
+
+        let items = [];
+        let activeIndex = -1;
+        let debounceTimer = null;
+        let lastReqId = 0;
+
+        function hideDropdown() {
+          dropdown.style.display = "none";
+          dropdown.innerHTML = "";
+          items = [];
+          activeIndex = -1;
+        }
+
+        function showDropdown() {
+          if (items.length === 0) {
+            hideDropdown();
+            return;
+          }
+          dropdown.style.display = "block";
+          dropdown.innerHTML = items
+            .map((it, idx) => {
+              const cls =
+                idx === activeIndex
+                  ? "typeahead-item active"
+                  : "typeahead-item";
+              const hint = it.hint
+                ? `<span class="hint">${escapeHtml(it.hint)}</span>`
+                : "";
+              return `<div class="${cls}" data-index="${idx}"><span>${escapeHtml(
+                it.text
+              )}</span>${hint}</div>`;
+            })
+            .join("");
+          // Click handling
+          Array.from(dropdown.children).forEach((el) => {
+            el.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              const idx = Number(el.getAttribute("data-index"));
+              if (!Number.isNaN(idx)) applySuggestion(items[idx]);
+            });
+          });
+        }
+
+        function moveActive(delta) {
+          if (items.length === 0) return;
+          activeIndex = (activeIndex + delta + items.length) % items.length;
+          showDropdown();
+        }
+
+        function currentTokenInfo() {
+          const value = input.value;
+          const caret = input.selectionStart || 0;
+          // find token start (space outside quotes)
+          let inQuotes = false;
+          let start = 0;
+          for (let i = 0; i < caret; i++) {
+            const c = value[i];
+            if (c === '"') inQuotes = !inQuotes;
+            if (!inQuotes && c === " " && i + 1 <= caret) start = i + 1;
+          }
+          // find token end (exclusive)
+          inQuotes = false;
+          let end = value.length;
+          for (let i = start; i < value.length; i++) {
+            const c = value[i];
+            if (c === '"') inQuotes = !inQuotes;
+            if (!inQuotes && c === " ") {
+              end = i;
+              break;
+            }
+          }
+          const token = value.slice(start, caret);
+          const fullToken = value.slice(start, end);
+          // Identify key/value
+          let negate = fullToken.startsWith("NOT ");
+          const noNot = negate ? fullToken.slice(4) : fullToken;
+          let key = "";
+          let stage = "key"; // key | value | logic
+          if (token.length === 0) {
+            const prev = value.slice(0, start);
+            stage = prev.trimEnd().endsWith(":") ? "value" : "key";
+          }
+          const colonIdxInToken = noNot.indexOf(":");
+          if (colonIdxInToken >= 0) {
+            key = noNot.slice(0, colonIdxInToken).trim().toLowerCase();
+            stage = "value";
+          } else {
+            key = noNot.trim().toLowerCase();
+            stage = "key";
+          }
+          // valuePrefix chars after key: and optional opening quote, and absolute start for replacement
+          let valuePrefix = "";
+          let valueStartAbs = end;
+          if (stage === "value") {
+            // find colon absolute index between start..end outside quotes
+            let q = false;
+            let colonAbs = -1;
+            for (let i = start; i < end; i++) {
+              const c = value[i];
+              if (c === '"') q = !q;
+              if (!q && c === ":") {
+                colonAbs = i;
+                break;
+              }
+            }
+            if (colonAbs >= 0) {
+              valueStartAbs = colonAbs + 1;
+              while (valueStartAbs < end && value[valueStartAbs] === " ")
+                valueStartAbs++;
+              if (valueStartAbs < end && value[valueStartAbs] === '"')
+                valueStartAbs++;
+              valuePrefix = value.slice(valueStartAbs, caret);
+            }
+          }
+          return {
+            start,
+            end,
+            caret,
+            token,
+            key,
+            stage,
+            negate,
+            valuePrefix,
+            valueStartAbs,
+          };
+        }
+
+        function shouldQuoteValueForKey(key) {
+          return (
+            key === "tag" ||
+            key === "category" ||
+            key === "path" ||
+            key === "pathdir" ||
+            key === "description" ||
+            key === "hash"
+          );
+        }
+
+        function buildSuggestions() {
+          const info = currentTokenInfo();
+          const value = input.value;
+          const reqId = ++lastReqId;
+
+          // Stage: key suggestions
+          if (info.stage === "key") {
+            fetch(`/media/suggest?kind=filters`)
+              .then((r) => r.json())
+              .then((data) => {
+                if (reqId !== lastReqId) return;
+                const pref = info.key || "";
+                const arr = (data.suggestions || []).filter((s) =>
+                  s.startsWith(pref)
+                );
+                // Also suggest AND/OR if token empty
+                if (
+                  (info.token.trim() === "" && value.trim() !== "") ||
+                  info.token.toUpperCase() === "A" ||
+                  info.token.toUpperCase() === "O"
+                ) {
+                  arr.unshift("AND", "OR");
+                }
+                items = arr.map((s) => ({ text: s, kind: "key" }));
+                activeIndex = items.length > 0 ? 0 : -1;
+                showDropdown();
+              })
+              .catch(() => hideDropdown());
+            return;
+          }
+
+          // Stage: value suggestions depending on key
+          const k = info.key;
+          if (k === "exists") {
+            const vals = ["true", "false"];
+            const pref = info.valuePrefix.toLowerCase();
+            const arr = vals.filter((v) => v.startsWith(pref));
+            items = arr.map((s) => ({ text: s, kind: "value" }));
+            activeIndex = items.length > 0 ? 0 : -1;
+            showDropdown();
+            return;
+          }
+          if (k === "tags") {
+            const vals = ["none"];
+            const pref = info.valuePrefix.toLowerCase();
+            const arr = vals.filter((v) => v.startsWith(pref));
+            items = arr.map((s) => ({ text: s, kind: "value" }));
+            activeIndex = items.length > 0 ? 0 : -1;
+            showDropdown();
+            return;
+          }
+          if (
+            k === "size" ||
+            k === "width" ||
+            k === "height" ||
+            k === "tagcount"
+          ) {
+            const ops = [">=", "<=", ">", "<"];
+            const pref = info.valuePrefix;
+            const arr = ops.filter((o) => o.startsWith(pref));
+            items = arr.map((s) => ({
+              text: s,
+              kind: "value",
+              hint: "operator",
+            }));
+            activeIndex = items.length > 0 ? 0 : -1;
+            showDropdown();
+            return;
+          }
+          let kind = null;
+          if (k === "tag") kind = "tag";
+          else if (k === "category") kind = "category";
+          else if (k === "path") kind = "path";
+          else if (k === "pathdir") kind = "pathdir";
+          if (!kind) {
+            hideDropdown();
+            return;
+          }
+          const encPrefix = encodeURIComponent(info.valuePrefix || "");
+          fetch(`/media/suggest?kind=${kind}&prefix=${encPrefix}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (reqId !== lastReqId) return;
+              const arr = data.suggestions || [];
+              items = arr.map((s) => ({ text: s, kind: "value" }));
+              activeIndex = items.length > 0 ? 0 : -1;
+              showDropdown();
+            })
+            .catch(() => hideDropdown());
+        }
+
+        function applySuggestion(sug) {
+          if (!sug) return;
+          const info = currentTokenInfo();
+          const value = input.value;
+          let insertText = sug.text;
+
+          if (info.stage === "key") {
+            insertText = (info.negate ? "NOT " : "") + insertText + ":";
+            const before = value.slice(0, info.start);
+            const after = value.slice(info.end);
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length;
+            input.setSelectionRange(newCaret, newCaret);
+          } else if (info.stage === "value") {
+            const needsQuote =
+              shouldQuoteValueForKey(info.key) ||
+              /\s/.test(insertText) ||
+              info.key === "tag" ||
+              info.key === "path" ||
+              info.key === "pathdir" ||
+              info.key === "category";
+            if (needsQuote) insertText = '"' + insertText + '"';
+            const replaceStart = info.valueStartAbs;
+            const replaceEnd = info.end;
+            const before = value.slice(0, replaceStart);
+            const after = value.slice(replaceEnd);
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length;
+            input.setSelectionRange(newCaret, newCaret);
+          } else {
+            // logic (AND/OR) - replace full token
+            const before = value.slice(0, info.start);
+            const after = value.slice(info.end);
+            insertText = insertText.toUpperCase();
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length + 1;
+            input.setSelectionRange(newCaret, newCaret);
+          }
+
+          hideDropdown();
+          input.focus();
+        }
+
+        input.addEventListener("keydown", (e) => {
+          if (dropdown.style.display === "block") {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              moveActive(1);
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              moveActive(-1);
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              if (activeIndex >= 0 && items[activeIndex]) {
+                e.preventDefault();
+                applySuggestion(items[activeIndex]);
+                return;
+              }
+            }
+            if (e.key === "Escape") {
+              hideDropdown();
+              return;
+            }
+          }
+        });
+
+        input.addEventListener("input", () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(buildSuggestions, 150);
+        });
+
+        input.addEventListener("focus", () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(buildSuggestions, 100);
+        });
+
+        input.addEventListener("blur", () => {
+          setTimeout(() => hideDropdown(), 120);
+        });
+      })();
     </script>
   </body>
 </html>
