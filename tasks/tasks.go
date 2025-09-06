@@ -229,7 +229,7 @@ func executeCommand(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	case <-ctx.Done():
 		// If the context is done, we assume the job was cancelled.
 		q.PushJobStdout(j.ID, "Task was canceled")
-		_ = q.ErrorJob(j.ID)
+		_ = q.CancelJob(j.ID)
 		return ctx.Err()
 	default:
 	}
@@ -253,6 +253,7 @@ func waitFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		select {
 		case <-ctx.Done(): // Listen for context cancellation
 			q.PushJobStdout(j.ID, "Task was canceled")
+			_ = q.CancelJob(j.ID)
 			return ctx.Err() // Return the context's error (e.g., context.Canceled)
 		case <-time.After(1 * time.Second): // Wait for 1 second
 			q.PushJobStdout(j.ID, "Waiting in task...")
@@ -321,7 +322,7 @@ func removeFromDB(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	select {
 	case <-ctx.Done():
 		q.PushJobStdout(j.ID, "Task was canceled")
-		q.ErrorJob(j.ID)
+		_ = q.CancelJob(j.ID)
 		return ctx.Err()
 	default:
 	}
@@ -367,7 +368,7 @@ func cleanUpFn(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	select {
 	case <-ctx.Done():
 		q.PushJobStdout(j.ID, "Task was canceled")
-		q.ErrorJob(j.ID)
+		_ = q.CancelJob(j.ID)
 		return ctx.Err()
 	default:
 	}
@@ -462,7 +463,7 @@ func ingestTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		select {
 		case <-ctx.Done():
 			q.PushJobStdout(j.ID, "Task was canceled")
-			q.ErrorJob(j.ID)
+			_ = q.CancelJob(j.ID)
 			return ctx.Err()
 		default:
 		}
@@ -492,7 +493,7 @@ func ingestTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	select {
 	case <-ctx.Done():
 		q.PushJobStdout(j.ID, "Task was canceled")
-		q.ErrorJob(j.ID)
+		_ = q.CancelJob(j.ID)
 		return ctx.Err()
 	default:
 	}
@@ -667,7 +668,7 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		select {
 		case <-ctx.Done():
 			q.PushJobStdout(j.ID, "Task was canceled")
-			q.ErrorJob(j.ID)
+			_ = q.CancelJob(j.ID)
 			return ctx.Err()
 		default:
 		}
@@ -997,7 +998,7 @@ func generateDescriptions(ctx context.Context, q *jobqueue.Queue, jobID string, 
 		}
 
 		// Generate description using Ollama
-		description, err := describeFileWithOllama(filePath, model)
+		description, err := describeFileWithOllama(ctx, filePath, model)
 		if err != nil {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to describe %s: %v", filePath, err))
 			continue
@@ -1062,7 +1063,7 @@ func generateTranscripts(ctx context.Context, q *jobqueue.Queue, jobID string, f
 		}
 
 		// Generate transcript using faster-whisper-xxl
-		transcript, err := generateTranscriptWithFasterWhisper(filePath)
+		transcript, err := generateTranscriptWithFasterWhisper(ctx, filePath)
 		if err != nil {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to transcribe %s: %v", filePath, err))
 			continue
@@ -1254,7 +1255,7 @@ func updateMediaMetadata(db *sql.DB, path, metadataType, value string) error {
 }
 
 // describeFileWithOllama generates description using Ollama vision model
-func describeFileWithOllama(mediaPath, model string) (string, error) {
+func describeFileWithOllama(ctx context.Context, mediaPath, model string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(mediaPath))
 	var tempImagePath string
 	var cleanupPaths []string
@@ -1268,7 +1269,7 @@ func describeFileWithOllama(mediaPath, model string) (string, error) {
 		screenshotPath := filepath.Join(os.TempDir(), "ollama_screenshot_"+filepath.Base(mediaPath)+".jpg")
 		cleanupPaths = append(cleanupPaths, screenshotPath)
 
-		ffmpegCmd := exec.Command("ffmpeg",
+		ffmpegCmd := exec.CommandContext(ctx, "ffmpeg",
 			"-ss", "1",
 			"-i", mediaPath,
 			"-frames:v", "1",
@@ -1296,7 +1297,7 @@ func describeFileWithOllama(mediaPath, model string) (string, error) {
 	}
 
 	// Call Ollama with the image
-	description, err := callOllamaVision(resizedPath, model)
+	description, err := callOllamaVision(ctx, resizedPath, model)
 	if err != nil {
 		// Clean up partials if needed
 		for _, p := range cleanupPaths {
@@ -1356,7 +1357,7 @@ func resizeImageIfNeeded(path string) (string, error) {
 }
 
 // callOllamaVision calls Ollama API to describe an image
-func callOllamaVision(imagePath, model string) (string, error) {
+func callOllamaVision(ctx context.Context, imagePath, model string) (string, error) {
 	// Read image and convert to base64
 	data, err := os.ReadFile(imagePath)
 	if err != nil {
@@ -1374,7 +1375,7 @@ func callOllamaVision(imagePath, model string) (string, error) {
 
 	// Create request
 	base := strings.TrimRight(appconfig.Get().OllamaBaseURL, "/")
-	req, err := http.NewRequest("POST", base+"/api/generate", strings.NewReader(requestJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", base+"/api/generate", strings.NewReader(requestJSON))
 	if err != nil {
 		return "", fmt.Errorf("failed to build request: %w", err)
 	}
@@ -1411,13 +1412,13 @@ func callOllamaVision(imagePath, model string) (string, error) {
 }
 
 // generateTranscriptWithFasterWhisper generates transcript using faster-whisper-xxl
-func generateTranscriptWithFasterWhisper(filePath string) (string, error) {
+func generateTranscriptWithFasterWhisper(ctx context.Context, filePath string) (string, error) {
 	// Run faster-whisper (path configurable)
 	exePath := appconfig.Get().FasterWhisperPath
 	if strings.TrimSpace(exePath) == "" {
 		exePath = "faster-whisper-xxl.exe"
 	}
-	cmd := exec.Command(
+	cmd := exec.CommandContext(ctx,
 		exePath,
 		"--beep_off",
 		"--output_format=vtt",
@@ -1682,7 +1683,7 @@ func moveTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		select {
 		case <-ctx.Done():
 			q.PushJobStdout(j.ID, "Task was canceled")
-			q.ErrorJob(j.ID)
+			_ = q.CancelJob(j.ID)
 			return ctx.Err()
 		default:
 		}
@@ -1943,7 +1944,7 @@ func generateAutoTags(ctx context.Context, q *jobqueue.Queue, jobID string, file
 		}
 
 		// Generate auto tags using vision model
-		selectedTags, err := generateAutoTagsWithVision(filePath, availableTags, model)
+		selectedTags, err := generateAutoTagsWithVision(ctx, filePath, availableTags, model)
 		if err != nil {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to auto-tag %s: %v", filePath, err))
 			continue
@@ -2109,7 +2110,7 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		select {
 		case <-ctx.Done():
 			q.PushJobStdout(j.ID, "autotag: task canceled")
-			q.ErrorJob(j.ID)
+			_ = q.CancelJob(j.ID)
 			return ctx.Err()
 		default:
 		}
@@ -2399,7 +2400,7 @@ func ensureCategoryExists(db *sql.DB, label string, weight int) error {
 }
 
 // generateAutoTagsWithVision uses the vision model to select appropriate tags from available options
-func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
+func generateAutoTagsWithVision(ctx context.Context, mediaPath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
 	ext := strings.ToLower(filepath.Ext(mediaPath))
 	var tempImagePath string
 	var cleanupPaths []string
@@ -2412,7 +2413,7 @@ func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model
 		screenshotPath := filepath.Join(os.TempDir(), "autotag_screenshot_"+filepath.Base(mediaPath)+".jpg")
 		cleanupPaths = append(cleanupPaths, screenshotPath)
 
-		ffmpegCmd := exec.Command("ffmpeg",
+		ffmpegCmd := exec.CommandContext(ctx, "ffmpeg",
 			"-ss", "1",
 			"-i", mediaPath,
 			"-frames:v", "1",
@@ -2439,7 +2440,7 @@ func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model
 	}
 
 	// Create the prompt with available tags
-	selectedTags, err := callOllamaVisionForTags(resizedPath, availableTags, model)
+	selectedTags, err := callOllamaVisionForTags(ctx, resizedPath, availableTags, model)
 	if err != nil {
 		for _, p := range cleanupPaths {
 			_ = os.Remove(p)
@@ -2456,7 +2457,7 @@ func generateAutoTagsWithVision(mediaPath string, availableTags []TagInfo, model
 }
 
 // callOllamaVisionForTags calls Ollama API to select appropriate tags for an image
-func callOllamaVisionForTags(imagePath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
+func callOllamaVisionForTags(ctx context.Context, imagePath string, availableTags []TagInfo, model string) ([]TagInfo, error) {
 	// Read image and convert to base64
 	data, err := os.ReadFile(imagePath)
 	if err != nil {
@@ -2494,7 +2495,7 @@ func callOllamaVisionForTags(imagePath string, availableTags []TagInfo, model st
 
 	// Create request
 	base := strings.TrimRight(appconfig.Get().OllamaBaseURL, "/")
-	req, err := http.NewRequest("POST", base+"/api/generate", strings.NewReader(requestJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", base+"/api/generate", strings.NewReader(requestJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}

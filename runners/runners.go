@@ -57,7 +57,16 @@ func (r *Runners) runJob(j *jobqueue.Job) {
 
 		tasksMap := tasks.GetTasks()
 		if task, exists := tasksMap[j.Command]; exists {
-			task.Fn(j, r.queue, &r.mu)
+			// Ensure job state is finalized even if task forgets
+			if err := task.Fn(j, r.queue, &r.mu); err != nil {
+				// If context is canceled, prefer Cancelled state
+				select {
+				case <-j.Ctx.Done():
+					_ = r.queue.CancelJob(j.ID)
+				default:
+					_ = r.queue.ErrorJob(j.ID)
+				}
+			}
 		} else {
 			// If the task is not found, we should mark the job as failed.
 			r.queue.PushJobStdout(j.ID, "Task not found: "+j.Command)
