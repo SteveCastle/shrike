@@ -569,18 +569,18 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			q.ErrorJob(j.ID)
 			return err
 		}
-	} else if strings.TrimSpace(j.Input) == "" {
-		// If no input provided, process all files from database
-		q.PushJobStdout(j.ID, "No file list provided - processing all files from database")
-		filesToProcess, err = getAllMediaPaths(q.Db)
-		if err != nil {
-			q.PushJobStdout(j.ID, fmt.Sprintf("Error loading media paths from database: %v", err))
-			q.ErrorJob(j.ID)
-			return err
+	} else if strings.TrimSpace(j.Input) != "" {
+		// If no input provided and no query, expect explicit paths rather than defaulting to DB
+		raw := strings.TrimSpace(j.Input)
+		if raw == "" {
+			q.PushJobStdout(j.ID, "No input paths provided and no query; expecting comma/newline-separated file paths")
+			q.CompleteJob(j.ID)
+			return nil
 		}
-	} else {
 		// Parse input as file paths (newline and comma separated)
-		inputPaths := parseInputPaths(strings.TrimSpace(j.Input))
+		inputPaths := parseInputPaths(raw)
+		q.PushJobStdout(j.ID, fmt.Sprintf("Processing %d files from input list", len(inputPaths)))
+		q.PushJobStdout(j.ID, fmt.Sprintf("Raw: %s", raw))
 		for _, p := range inputPaths {
 			// Convert to absolute path
 			absPath, err := filepath.Abs(p)
@@ -778,25 +778,7 @@ func getExistingMediaPaths(db *sql.DB, dirPath string) (map[string]struct{}, err
 	return result, nil
 }
 
-// getAllMediaPaths gets all media paths from the database
-func getAllMediaPaths(db *sql.DB) ([]string, error) {
-	query := `SELECT path FROM media ORDER BY path`
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var paths []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, nil
-}
+// getAllMediaPaths removed: no longer used; metadata task expects explicit paths when no query
 
 // getMediaPathsByQuery retrieves all media paths matching a search query using the media package
 func getMediaPathsByQuery(db *sql.DB, query string) ([]string, error) {
@@ -836,7 +818,7 @@ func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
 				return string(dec), true
 			}
 		}
-		if lower == "--query64" || lower == "-q64" || lower == "-Q" {
+		if lower == "--query64" {
 			if i+1 < len(j.Arguments) {
 				enc := j.Arguments[i+1]
 				if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
@@ -844,7 +826,7 @@ func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
 				}
 			}
 		}
-		if lower == "--query" || lower == "-q" {
+		if lower == "--query" {
 			if i+1 < len(j.Arguments) {
 				start := i + 1
 				end := start
@@ -861,39 +843,18 @@ func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
 		if strings.HasPrefix(lower, "--query=") {
 			return arg[len("--query="):], true
 		}
-		if strings.HasPrefix(lower, "-q=") {
-			return arg[len("-q="):], true
-		}
 	}
 
 	// Check input prefix
 	input := strings.TrimSpace(j.Input)
 	if input != "" {
-		// Also support --query64 in raw input preserving exact bytes
-		if idx := strings.Index(strings.ToLower(input), "--query64="); idx != -1 {
-			enc := input[idx+len("--query64="):]
-			// trim at next space if present
-			if sp := strings.IndexAny(enc, " \t\n\r"); sp != -1 {
-				enc = enc[:sp]
-			}
-			if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
-				return string(dec), true
-			}
-		}
-		lower := strings.ToLower(input)
-		if strings.HasPrefix(lower, "query:") {
-			return strings.TrimSpace(input[len("query:"):]), true
-		}
-		if strings.HasPrefix(lower, "q:") {
-			return strings.TrimSpace(input[len("q:"):]), true
-		}
 
-		// If the entire command line was placed in input, try to extract --query/-q
+		// If the entire command line was placed in input, only extract explicit --query/--query64 flags
 		tokens := tokenizeCommandLine(input)
 		for i := 0; i < len(tokens); i++ {
 			lt := strings.ToLower(tokens[i])
 			// Handle base64 query in tokenized input
-			if lt == "--query64" || lt == "-q64" || lt == "-q" {
+			if lt == "--query64" {
 				if i+1 < len(tokens) {
 					start := i + 1
 					end := start
@@ -905,16 +866,12 @@ func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
 						end++
 					}
 					joined := strings.Join(tokens[start:end], " ")
-					if lt == "--query64" || lt == "-q64" {
-						if dec, err := base64.StdEncoding.DecodeString(joined); err == nil {
-							return string(dec), true
-						}
-					} else {
-						return joined, true
+					if dec, err := base64.StdEncoding.DecodeString(joined); err == nil {
+						return string(dec), true
 					}
 				}
 			}
-			if lt == "--query" || lt == "-q" {
+			if lt == "--query" {
 				if i+1 < len(tokens) {
 					start := i + 1
 					end := start
@@ -937,20 +894,6 @@ func extractQueryFromJob(j *jobqueue.Job) (string, bool) {
 					return string(dec), true
 				}
 			}
-			if strings.HasPrefix(lt, "-q=") {
-				return tokens[i][len("-q="):], true
-			}
-			if strings.HasPrefix(lt, "-q64=") {
-				enc := tokens[i][len("-q64="):]
-				if dec, err := base64.StdEncoding.DecodeString(enc); err == nil {
-					return string(dec), true
-				}
-			}
-		}
-
-		// Heuristic: if input looks like a media search query (e.g., pathdir:..., tag:..., size:>..), treat it as query
-		if looksLikeSearchQuery(input) {
-			return input, true
 		}
 	}
 
@@ -996,24 +939,7 @@ func tokenizeCommandLine(s string) []string {
 	return tokens
 }
 
-// looksLikeSearchQuery does a simple check for known media search fields
-func looksLikeSearchQuery(s string) bool {
-	lower := strings.ToLower(strings.TrimSpace(s))
-	if lower == "" {
-		return false
-	}
-	// Common operators and field prefixes
-	if strings.Contains(lower, " and ") || strings.Contains(lower, " or ") {
-		return true
-	}
-	fields := []string{"path:", "pathdir:", "tag:", "category:", "size:", "description:", "width:", "height:", "exists:", "hash:"}
-	for _, f := range fields {
-		if strings.Contains(lower, f) {
-			return true
-		}
-	}
-	return false
-}
+// looksLikeSearchQuery removed: explicit flags only
 
 // parseInputPaths parses newline and comma separated file paths from j.Input
 func parseInputPaths(raw string) []string {
@@ -2323,10 +2249,7 @@ func ffmpegTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	// The rest of the arguments are an ffmpeg argument template.
 	// We will build a per-file argument list by replacing placeholders.
 	// Example: -i {input} -c:v libx264 -crf 23 {dir}/{name}.mp4
-	templateArgs := make([]string, 0, len(j.Arguments))
-	for _, a := range j.Arguments {
-		templateArgs = append(templateArgs, a)
-	}
+	templateArgs := append([]string{}, j.Arguments...)
 	if len(templateArgs) == 0 {
 		q.PushJobStdout(j.ID, "ffmpeg: no arguments provided for ffmpeg")
 		q.CompleteJob(j.ID)
