@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -13,17 +12,15 @@ import (
 
 const (
 	// Maximum number of concurrent SSE connections allowed
-	MaxConcurrentConnections = 1000
+	MaxConcurrentConnections = 5000
 	// Buffer size for each client's message channel
-	ClientChannelBuffer = 50
+	ClientChannelBuffer = 256
 	// How often to send keep-alive messages
 	KeepAliveInterval = 30 * time.Second
 	// How often to cleanup dead connections
 	CleanupInterval = 60 * time.Second
-	// Timeout for sending messages to clients
-	ClientSendTimeout = 5 * time.Second
-	// Maximum message queue size before dropping messages
-	MaxQueuedMessages = 100
+	// Buffer size for hub broadcast queue
+	HubBroadcastBuffer = 2048
 )
 
 type clientChan chan Message
@@ -41,21 +38,27 @@ type Client struct {
 
 // ConnectionManager manages SSE client connections with production-ready features
 type ConnectionManager struct {
-	clients       sync.Map // map[clientChan]*Client
-	activeCount   int64    // Atomic counter for active connections
-	totalMessages int64    // Atomic counter for total messages sent
-	mu            sync.RWMutex
-	shutdown      chan struct{}
-	shutdownOnce  sync.Once
+	clients           sync.Map // map[clientChan]*Client
+	activeCount       int64    // Atomic counter for active connections
+	totalMessages     int64    // Atomic counter for total messages sent
+	broadcast         chan Message
+	droppedBroadcasts int64
+	droppedClientMsgs int64
+	rejectedConns     int64
+	mu                sync.RWMutex
+	shutdown          chan struct{}
+	shutdownOnce      sync.Once
 }
 
 var manager *ConnectionManager
 
 func init() {
 	manager = &ConnectionManager{
-		shutdown: make(chan struct{}),
+		shutdown:  make(chan struct{}),
+		broadcast: make(chan Message, HubBroadcastBuffer),
 	}
-	// Start background cleanup routine
+	// Start background loops
+	go manager.runBroadcastLoop()
 	go manager.cleanupRoutine()
 }
 
@@ -67,9 +70,12 @@ type Message struct {
 // GetConnectionStats returns current connection statistics
 func GetConnectionStats() map[string]interface{} {
 	return map[string]interface{}{
-		"active_connections": atomic.LoadInt64(&manager.activeCount),
-		"total_messages":     atomic.LoadInt64(&manager.totalMessages),
-		"max_connections":    MaxConcurrentConnections,
+		"active_connections":   atomic.LoadInt64(&manager.activeCount),
+		"total_messages":       atomic.LoadInt64(&manager.totalMessages),
+		"max_connections":      MaxConcurrentConnections,
+		"dropped_broadcasts":   atomic.LoadInt64(&manager.droppedBroadcasts),
+		"dropped_client_msgs":  atomic.LoadInt64(&manager.droppedClientMsgs),
+		"rejected_connections": atomic.LoadInt64(&manager.rejectedConns),
 	}
 }
 
@@ -77,6 +83,7 @@ func GetConnectionStats() map[string]interface{} {
 func AddClient(c clientChan, remoteAddr, userAgent string) bool {
 	// Check connection limit
 	if atomic.LoadInt64(&manager.activeCount) >= MaxConcurrentConnections {
+		atomic.AddInt64(&manager.rejectedConns, 1)
 		log.Printf("Connection limit reached (%d), rejecting new client from %s", MaxConcurrentConnections, remoteAddr)
 		return false
 	}
@@ -114,54 +121,42 @@ func RemoveClient(c clientChan) {
 	}
 }
 
-// Broadcast sends a message to all registered clients with production-ready error handling
+// Broadcast enqueues a message for fan-out without blocking callers
 func Broadcast(msg Message) {
 	if manager == nil {
 		return
 	}
+	select {
+	case manager.broadcast <- msg:
+		// ok: dispatcher will fan-out and account metrics
+	default:
+		// hub busy; drop to protect producers
+		atomic.AddInt64(&manager.droppedBroadcasts, 1)
+	}
+}
 
-	atomic.AddInt64(&manager.totalMessages, 1)
-
-	var deadClients []clientChan
-
-	manager.clients.Range(func(key, value any) bool {
-		c := key.(clientChan)
-		client := value.(*Client)
-
-		// Create a timeout context for sending
-		ctx, cancel := context.WithTimeout(context.Background(), ClientSendTimeout)
-
-		sent := make(chan bool, 1)
-		go func() {
-			select {
-			case c <- msg:
-				sent <- true
-			case <-ctx.Done():
-				sent <- false
-			}
-		}()
-
+// runBroadcastLoop fans out messages to clients without blocking
+func (cm *ConnectionManager) runBroadcastLoop() {
+	for {
 		select {
-		case success := <-sent:
-			if success {
-				atomic.StoreInt64(&client.LastSeen, time.Now().Unix())
-				atomic.AddInt64(&client.MessagesSent, 1)
-			} else {
-				// Client didn't receive message in time, mark for removal
-				deadClients = append(deadClients, c)
-			}
-		case <-ctx.Done():
-			// Timeout occurred, mark client as dead
-			deadClients = append(deadClients, c)
+		case msg := <-cm.broadcast:
+			cm.clients.Range(func(key, value any) bool {
+				c := key.(clientChan)
+				client := value.(*Client)
+				select {
+				case c <- msg:
+					atomic.StoreInt64(&client.LastSeen, time.Now().Unix())
+					atomic.AddInt64(&client.MessagesSent, 1)
+					atomic.AddInt64(&cm.totalMessages, 1)
+				default:
+					// client queue full; drop this message for this client
+					atomic.AddInt64(&cm.droppedClientMsgs, 1)
+				}
+				return true
+			})
+		case <-cm.shutdown:
+			return
 		}
-
-		cancel()
-		return true
-	})
-
-	// Clean up dead clients
-	for _, deadClient := range deadClients {
-		RemoveClient(deadClient)
 	}
 }
 
