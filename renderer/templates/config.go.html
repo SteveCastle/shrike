@@ -125,6 +125,87 @@
           type="text"
           value="{{.Config.DBPath}}"
         />
+        <div class="row" style="margin-top: 12px"></div>
+        <div class="label">Ollama Base URL</div>
+        <input
+          id="ollama-base-url"
+          class="input"
+          type="text"
+          value="{{.Config.OllamaBaseURL}}"
+        />
+        <div class="label">Ollama Model</div>
+        <input
+          id="ollama-model"
+          class="input"
+          type="text"
+          value="{{.Config.OllamaModel}}"
+        />
+        <div class="label">Describe Prompt</div>
+        <textarea id="describe-prompt" class="input" rows="4">
+{{.Config.DescribePrompt}}</textarea
+        >
+        <div class="label">Autotag Prompt</div>
+        <textarea id="autotag-prompt" class="input" rows="6">
+{{.Config.AutotagPrompt}}</textarea
+        >
+        <div class="row" style="margin-top: 12px"></div>
+        <div class="label">ONNX Tagger - Model Path</div>
+        <input
+          id="onnx-model-path"
+          class="input"
+          type="text"
+          value="{{.Config.OnnxTagger.ModelPath}}"
+        />
+        <div class="label">ONNX Tagger - Labels Path</div>
+        <input
+          id="onnx-labels-path"
+          class="input"
+          type="text"
+          value="{{.Config.OnnxTagger.LabelsPath}}"
+        />
+        <div class="label">ONNX Tagger - Config Path</div>
+        <input
+          id="onnx-config-path"
+          class="input"
+          type="text"
+          value="{{.Config.OnnxTagger.ConfigPath}}"
+        />
+        <div class="label">ONNX Tagger - ORT Shared Library Path</div>
+        <input
+          id="onnx-ort-path"
+          class="input"
+          type="text"
+          value="{{.Config.OnnxTagger.ORTSharedLibraryPath}}"
+        />
+        <div class="row" style="gap: 12px; margin-top: 8px">
+          <div style="flex: 1">
+            <div class="label">General Threshold</div>
+            <input
+              id="onnx-general-thresh"
+              class="input"
+              type="number"
+              step="0.01"
+              value="{{.Config.OnnxTagger.GeneralThreshold}}"
+            />
+          </div>
+          <div style="flex: 1">
+            <div class="label">Character Threshold</div>
+            <input
+              id="onnx-char-thresh"
+              class="input"
+              type="number"
+              step="0.01"
+              value="{{.Config.OnnxTagger.CharacterThreshold}}"
+            />
+          </div>
+        </div>
+        <div class="label">Faster-Whisper Executable Path</div>
+        <input
+          id="faster-whisper-path"
+          class="input"
+          type="text"
+          value="{{.Config.FasterWhisperPath}}"
+        />
         <div class="actions">
           <button class="btn btn-primary" id="save-btn">Save</button>
           <button class="btn btn-secondary" id="reload-btn">
@@ -153,11 +234,41 @@
           setStatus("dbPath cannot be empty", "error");
           return;
         }
+        const payload = {
+          dbPath,
+          ollamaBaseUrl: document
+            .getElementById("ollama-base-url")
+            .value.trim(),
+          ollamaModel: document.getElementById("ollama-model").value.trim(),
+          describePrompt: document.getElementById("describe-prompt").value,
+          autotagPrompt: document.getElementById("autotag-prompt").value,
+          onnxModelPath: document
+            .getElementById("onnx-model-path")
+            .value.trim(),
+          onnxLabelsPath: document
+            .getElementById("onnx-labels-path")
+            .value.trim(),
+          onnxConfigPath: document
+            .getElementById("onnx-config-path")
+            .value.trim(),
+          onnxOrtSharedLibPath: document
+            .getElementById("onnx-ort-path")
+            .value.trim(),
+          onnxGeneralThreshold: parseFloat(
+            document.getElementById("onnx-general-thresh").value
+          ),
+          onnxCharacterThreshold: parseFloat(
+            document.getElementById("onnx-char-thresh").value
+          ),
+          fasterWhisperPath: document
+            .getElementById("faster-whisper-path")
+            .value.trim(),
+        };
         setStatus("Saving...");
         fetch("/config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dbPath }),
+          body: JSON.stringify(payload),
         })
           .then((r) => r.json())
           .then((res) => {

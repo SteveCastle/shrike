@@ -85,10 +85,11 @@ func (m MediaItem) MarshalJSON() ([]byte, error) {
 
 // TemplateData represents data for the media template
 type TemplateData struct {
-	MediaItems  []MediaItem `json:"media_items"`
-	Offset      int         `json:"offset"`
-	HasMore     bool        `json:"has_more"`
-	SearchQuery string      `json:"search_query"`
+	MediaItems         []MediaItem `json:"media_items"`
+	Offset             int         `json:"offset"`
+	HasMore            bool        `json:"has_more"`
+	SearchQuery        string      `json:"search_query"`
+	DefaultOllamaModel string      `json:"default_ollama_model"`
 }
 
 // APIResponse represents the JSON response for the API endpoint

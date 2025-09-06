@@ -27,6 +27,7 @@ import (
 
 	_ "golang.org/x/image/webp"
 
+	"github.com/stevecastle/shrike/appconfig"
 	"github.com/stevecastle/shrike/embedexec"
 	"github.com/stevecastle/shrike/jobqueue"
 	"github.com/stevecastle/shrike/media"
@@ -508,7 +509,7 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	var metadataTypes []string
 	var overwrite bool
 	var applyScope string = "new" // default to new files only
-	var ollamaModel string = "llama3.2-vision"
+	var ollamaModel string = appconfig.Get().OllamaModel
 
 	// Parse arguments
 	for i, arg := range j.Arguments {
@@ -1367,19 +1368,20 @@ func callOllamaVision(imagePath, model string) (string, error) {
 	requestJSON := fmt.Sprintf(`{
 		"model": "%s",
 		"stream": false,
-		"prompt": "Please describe this image, paying special attention to the people, the color of hair, clothing, items, text and captions, and actions being performed.",
+		"prompt": %s,
 		"images": ["%s"]
-	}`, model, b64)
+	}`, model, strconv.Quote(appconfig.Get().DescribePrompt), b64)
 
 	// Create request
-	req, err := http.NewRequest("POST", "http://localhost:11434/api/generate", strings.NewReader(requestJSON))
+	base := strings.TrimRight(appconfig.Get().OllamaBaseURL, "/")
+	req, err := http.NewRequest("POST", base+"/api/generate", strings.NewReader(requestJSON))
 	if err != nil {
 		return "", fmt.Errorf("failed to build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ollama request failed: %w", err)
@@ -1410,9 +1412,13 @@ func callOllamaVision(imagePath, model string) (string, error) {
 
 // generateTranscriptWithFasterWhisper generates transcript using faster-whisper-xxl
 func generateTranscriptWithFasterWhisper(filePath string) (string, error) {
-	// Run faster-whisper-xxl
+	// Run faster-whisper (path configurable)
+	exePath := appconfig.Get().FasterWhisperPath
+	if strings.TrimSpace(exePath) == "" {
+		exePath = "faster-whisper-xxl.exe"
+	}
 	cmd := exec.Command(
-		"faster-whisper-xxl.exe",
+		exePath,
 		"--beep_off",
 		"--output_format=vtt",
 		"--output_dir=source",
@@ -2108,14 +2114,28 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		default:
 		}
 
-		// Build command arguments
-		args := []string{
-			`--labels=I:\\selected_tags.csv`,
-			`--config=I:\\config.json`,
-			`--model=I:\\eva02-large-tagger-v3.onnx`,
-			`--ort=I:\\onnxruntime.dll`,
-			`--image=` + imagePath,
+		// Build command arguments from configuration
+		cfg := appconfig.Get()
+		args := []string{}
+		if strings.TrimSpace(cfg.OnnxTagger.LabelsPath) != "" {
+			args = append(args, `--labels=`+cfg.OnnxTagger.LabelsPath)
 		}
+		if strings.TrimSpace(cfg.OnnxTagger.ConfigPath) != "" {
+			args = append(args, `--config=`+cfg.OnnxTagger.ConfigPath)
+		}
+		if strings.TrimSpace(cfg.OnnxTagger.ModelPath) != "" {
+			args = append(args, `--model=`+cfg.OnnxTagger.ModelPath)
+		}
+		if strings.TrimSpace(cfg.OnnxTagger.ORTSharedLibraryPath) != "" {
+			args = append(args, `--ort=`+cfg.OnnxTagger.ORTSharedLibraryPath)
+		}
+		if cfg.OnnxTagger.GeneralThreshold > 0 {
+			args = append(args, `--general-thresh=`+fmt.Sprintf("%g", cfg.OnnxTagger.GeneralThreshold))
+		}
+		if cfg.OnnxTagger.CharacterThreshold > 0 {
+			args = append(args, `--character-thresh=`+fmt.Sprintf("%g", cfg.OnnxTagger.CharacterThreshold))
+		}
+		args = append(args, `--image=`+imagePath)
 
 		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] tagging %s", idx+1, len(paths), imagePath))
 
@@ -2458,22 +2478,8 @@ func callOllamaVisionForTags(imagePath string, availableTags []TagInfo, model st
 		tagOptions.WriteString(fmt.Sprintf("- %s: %s\n", category, strings.Join(labels, ", ")))
 	}
 
-	// Create the prompt
-	prompt := fmt.Sprintf(`Please analyze this image and select the most appropriate tags from the following list. Return your response as a JSON array containing objects with "label" and "category" fields.
-
-%s
-
-Look at the image carefully and select only the tags that accurately describe what you see. Focus on:
-- Objects and subjects visible in the image
-- Colors and visual characteristics
-- Composition and style elements
-- Setting or environment
-- Actions or activities if present
-
-Return your response in this exact JSON format:
-[{"label": "tag_name", "category": "category_name"}, ...]
-
-Only select tags that clearly apply to this image. If no tags from the list match what you see, return an empty array [].`, tagOptions.String())
+	// Create the prompt using template from config
+	prompt := fmt.Sprintf(appconfig.Get().AutotagPrompt, tagOptions.String())
 
 	// Log the final prompt for debugging
 	log.Printf("AutoTag Vision Prompt for %s:\n%s", imagePath, prompt)
@@ -2487,7 +2493,8 @@ Only select tags that clearly apply to this image. If no tags from the list matc
 	}`, model, strconv.Quote(prompt), b64)
 
 	// Create request
-	req, err := http.NewRequest("POST", "http://localhost:11434/api/generate", strings.NewReader(requestJSON))
+	base := strings.TrimRight(appconfig.Get().OllamaBaseURL, "/")
+	req, err := http.NewRequest("POST", base+"/api/generate", strings.NewReader(requestJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}

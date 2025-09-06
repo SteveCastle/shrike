@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/browser"
 	_ "modernc.org/sqlite"
 
+	"github.com/stevecastle/shrike/appconfig"
 	"github.com/stevecastle/shrike/jobqueue"
 	"github.com/stevecastle/shrike/media"
 	"github.com/stevecastle/shrike/renderer"
@@ -56,7 +57,7 @@ var srv *http.Server
 var deps *Dependencies
 
 // Keep a copy of the currently loaded config in memory
-var currentConfig Config
+var currentConfig appconfig.Config
 
 // -----------------------------------------------------------------------------
 // Dependencies struct to hold shared dependencies
@@ -88,78 +89,6 @@ func init() {
 // -----------------------------------------------------------------------------
 // Database initialization
 // -----------------------------------------------------------------------------
-
-// Config represents the structure of the configuration file
-type Config struct {
-	DBPath string `json:"dbPath"`
-	// Add other fields as needed, but we only need dbPath for now
-}
-
-// getConfigPath returns the full path to the config.json file
-func getConfigPath() (string, error) {
-	appDataDir := os.Getenv("APPDATA")
-	if appDataDir == "" {
-		return "", fmt.Errorf("APPDATA environment variable not found")
-	}
-	return filepath.Join(appDataDir, "Lowkey Media Viewer", "config.json"), nil
-}
-
-// loadConfig reads the config from disk
-func loadConfig() (Config, string, error) {
-	cfgPath, err := getConfigPath()
-	if err != nil {
-		return Config{}, "", err
-	}
-
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return Config{}, cfgPath, fmt.Errorf("failed to read config file at %s: %v", cfgPath, err)
-	}
-
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, cfgPath, fmt.Errorf("failed to parse config JSON: %v", err)
-	}
-	if cfg.DBPath == "" {
-		return Config{}, cfgPath, fmt.Errorf("dbPath not found in config file")
-	}
-	return cfg, cfgPath, nil
-}
-
-// saveConfig updates only the dbPath in the existing config file, preserving other fields
-func saveConfig(cfg Config) (string, error) {
-	cfgPath, err := getConfigPath()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0755); err != nil {
-		return cfgPath, fmt.Errorf("failed to create config directory: %v", err)
-	}
-
-	// Read existing config as a generic map to preserve unknown fields
-	existing := map[string]any{}
-	if b, err := os.ReadFile(cfgPath); err == nil {
-		if err := json.Unmarshal(b, &existing); err != nil {
-			// If existing JSON is invalid, fall back to an empty map
-			existing = map[string]any{}
-		}
-	} else if !os.IsNotExist(err) {
-		return cfgPath, fmt.Errorf("failed to read existing config: %v", err)
-	}
-
-	// Update only dbPath
-	existing["dbPath"] = cfg.DBPath
-
-	// Write back preserving other keys
-	data, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		return cfgPath, fmt.Errorf("failed to marshal config: %v", err)
-	}
-	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
-		return cfgPath, fmt.Errorf("failed to write config file: %v", err)
-	}
-	return cfgPath, nil
-}
 
 // switchDatabase switches the application's active database and queue to the provided path
 func switchDatabase(newDBPath string) error {
@@ -202,7 +131,7 @@ func switchDatabase(newDBPath string) error {
 
 func initDB() (*sql.DB, error) {
 	// Load config
-	cfg, _, err := loadConfig()
+	cfg, _, err := appconfig.Load()
 	if err != nil {
 		return nil, err
 	}
@@ -496,10 +425,11 @@ func mediaHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		data := media.TemplateData{
-			MediaItems:  items,
-			Offset:      len(items),
-			HasMore:     hasMore,
-			SearchQuery: searchQuery,
+			MediaItems:         items,
+			Offset:             len(items),
+			HasMore:            hasMore,
+			SearchQuery:        searchQuery,
+			DefaultOllamaModel: currentConfig.OllamaModel,
 		}
 
 		if err := renderer.Templates().ExecuteTemplate(w, "media", data); err != nil {
@@ -642,20 +572,31 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 // -----------------------------------------------------------------------------
 
 type configTemplateData struct {
-	Config       Config
+	Config       appconfig.Config
 	ConfigPath   string
 	ActiveDBPath string
 }
 
 type updateConfigRequest struct {
-	DBPath string `json:"dbPath"`
+	DBPath                 string  `json:"dbPath"`
+	OllamaBaseURL          string  `json:"ollamaBaseUrl"`
+	OllamaModel            string  `json:"ollamaModel"`
+	DescribePrompt         string  `json:"describePrompt"`
+	AutotagPrompt          string  `json:"autotagPrompt"`
+	OnnxModelPath          string  `json:"onnxModelPath"`
+	OnnxLabelsPath         string  `json:"onnxLabelsPath"`
+	OnnxConfigPath         string  `json:"onnxConfigPath"`
+	OnnxORTSharedLibPath   string  `json:"onnxOrtSharedLibPath"`
+	OnnxGeneralThreshold   float64 `json:"onnxGeneralThreshold"`
+	OnnxCharacterThreshold float64 `json:"onnxCharacterThreshold"`
+	FasterWhisperPath      string  `json:"fasterWhisperPath"`
 }
 
 func configHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			cfg, cfgPath, err := loadConfig()
+			cfg, cfgPath, err := appconfig.Load()
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -684,7 +625,32 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 			oldDBPath := currentConfig.DBPath
 			newCfg := currentConfig
 			newCfg.DBPath = req.DBPath
-			cfgPath, err := saveConfig(newCfg)
+			if strings.TrimSpace(req.OllamaBaseURL) != "" {
+				newCfg.OllamaBaseURL = strings.TrimSpace(req.OllamaBaseURL)
+			}
+			if strings.TrimSpace(req.OllamaModel) != "" {
+				newCfg.OllamaModel = strings.TrimSpace(req.OllamaModel)
+			}
+			if req.DescribePrompt != "" {
+				newCfg.DescribePrompt = req.DescribePrompt
+			}
+			if req.AutotagPrompt != "" {
+				newCfg.AutotagPrompt = req.AutotagPrompt
+			}
+			newCfg.OnnxTagger.ModelPath = strings.TrimSpace(req.OnnxModelPath)
+			newCfg.OnnxTagger.LabelsPath = strings.TrimSpace(req.OnnxLabelsPath)
+			newCfg.OnnxTagger.ConfigPath = strings.TrimSpace(req.OnnxConfigPath)
+			newCfg.OnnxTagger.ORTSharedLibraryPath = strings.TrimSpace(req.OnnxORTSharedLibPath)
+			if req.OnnxGeneralThreshold > 0 {
+				newCfg.OnnxTagger.GeneralThreshold = req.OnnxGeneralThreshold
+			}
+			if req.OnnxCharacterThreshold > 0 {
+				newCfg.OnnxTagger.CharacterThreshold = req.OnnxCharacterThreshold
+			}
+			if strings.TrimSpace(req.FasterWhisperPath) != "" {
+				newCfg.FasterWhisperPath = strings.TrimSpace(req.FasterWhisperPath)
+			}
+			cfgPath, err := appconfig.Save(newCfg)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
