@@ -4,6 +4,9 @@
 
 Shrike Media server is a companion for the Lowkey Media Viewer. It allows for managing long running offline tasks like, media tagging, transcript generation, media conversion, file serving, and media ingestion.
 
+<img width="1661" height="1606" alt="Screenshot 2025-09-20 082929" src="https://github.com/user-attachments/assets/850672bc-da70-4269-8049-cc651b0abed6" />
+
+
 ## Installation
 1. Run the shrike.exe binary. This will start the background server and create an Icon in your Windows system tray used for launching the WebUI.
 <img width="408" height="247" alt="Screenshot 2025-09-20 080659" src="https://github.com/user-attachments/assets/4b8a0141-08d4-4fb9-9c42-78db5dbd25ad" />
