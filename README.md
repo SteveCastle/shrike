@@ -4,6 +4,8 @@
 
 Shrike Media server is a companion for the Lowkey Media Viewer. It allows for managing long running offline tasks like, media tagging, transcript generation, media conversion, file serving, and media ingestion.
 
+<img width="1628" height="494" alt="Screenshot 2025-09-20 083904" src="https://github.com/user-attachments/assets/e814d2a5-7088-46b2-9a8c-d537b989b018" />
+
 <img width="1661" height="1606" alt="Screenshot 2025-09-20 082929" src="https://github.com/user-attachments/assets/850672bc-da70-4269-8049-cc651b0abed6" />
 
 
