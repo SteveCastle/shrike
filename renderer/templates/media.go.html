@@ -1939,58 +1939,196 @@
         }, 100);
       });
 
-      // EventSource for real-time updates
+      // EventSource for real-time updates (robust, lifecycle-aware)
       document.addEventListener("DOMContentLoaded", function () {
-        let eventSource = null;
-        const connectEventSource = () => {
+        const STREAM_URL = "/stream";
+
+        const sseState = {
+          es: null,
+          reconnectTimer: null,
+          heartbeatTimer: null,
+          connectingTimer: null,
+          backoffMs: 1000,
+          maxBackoffMs: 30000,
+          isConnecting: false,
+          isExplicitlyClosed: false,
+          lastActivityTs: Date.now(),
+          lifecycleSetup: false,
+        };
+
+        function withJitter(ms) {
+          const jitter = Math.floor(ms * 0.2 * Math.random());
+          return ms + jitter;
+        }
+
+        function resetBackoff() {
+          sseState.backoffMs = 1000;
+        }
+
+        function onActivity() {
+          sseState.lastActivityTs = Date.now();
+          resetBackoff();
+        }
+
+        function stopHeartbeat() {
+          if (sseState.heartbeatTimer) {
+            clearInterval(sseState.heartbeatTimer);
+            sseState.heartbeatTimer = null;
+          }
+        }
+
+        function startHeartbeat() {
+          stopHeartbeat();
+          sseState.heartbeatTimer = setInterval(() => {
+            const inactiveMs = Date.now() - sseState.lastActivityTs;
+            if (inactiveMs > 45000) {
+              console.warn("Media SSE idle too long; recreating connection");
+              recreateConnection();
+            }
+          }, 15000);
+        }
+
+        function clearConnectingTimer() {
+          if (sseState.connectingTimer) {
+            clearTimeout(sseState.connectingTimer);
+            sseState.connectingTimer = null;
+          }
+        }
+
+        function scheduleReconnect(reason) {
+          if (sseState.isExplicitlyClosed) return;
+          if (sseState.reconnectTimer) return;
+          const delay = withJitter(sseState.backoffMs);
+          console.log(`Media SSE reconnect in ${delay}ms (${reason || ""})`);
+          sseState.reconnectTimer = setTimeout(() => {
+            sseState.reconnectTimer = null;
+            connect();
+          }, delay);
+          sseState.backoffMs = Math.min(
+            sseState.maxBackoffMs,
+            sseState.backoffMs * 2
+          );
+        }
+
+        function cleanupES(markExplicit) {
+          if (markExplicit) sseState.isExplicitlyClosed = true;
+          stopHeartbeat();
+          clearConnectingTimer();
+          if (sseState.es) {
+            try {
+              sseState.es.close();
+            } catch (e) {}
+          }
+          sseState.es = null;
+          sseState.isConnecting = false;
+        }
+
+        function recreateConnection() {
+          cleanupES(false);
+          connect();
+        }
+
+        function connect() {
+          if (sseState.isConnecting) return;
+          if (sseState.es && sseState.es.readyState !== EventSource.CLOSED)
+            return;
           if (!navigator.onLine) {
-            console.warn("Offline. EventSource will not connect.");
+            scheduleReconnect("offline");
+            return;
+          }
+          if (document.visibilityState === "hidden") {
+            scheduleReconnect("hidden");
             return;
           }
 
-          console.log("Connecting to EventSource...");
-          eventSource = new EventSource("/stream");
+          sseState.isConnecting = true;
+          try {
+            console.log("Media SSE connecting...");
+            const es = new EventSource(STREAM_URL);
+            sseState.es = es;
 
-          eventSource.onopen = () => {
-            console.log("EventSource connected.");
-          };
+            clearConnectingTimer();
+            sseState.connectingTimer = setTimeout(() => {
+              if (
+                sseState.es &&
+                sseState.es.readyState === EventSource.CONNECTING
+              ) {
+                console.warn("Media SSE stuck CONNECTING; recreating");
+                recreateConnection();
+              }
+            }, 20000);
 
-          eventSource.onerror = (error) => {
-            console.error("EventSource error:", error);
-            if (eventSource.readyState === EventSource.CLOSED) {
-              console.log("Retrying EventSource connection in 3 seconds...");
-              setTimeout(connectEventSource, 3000);
-            }
-          };
+            es.onopen = () => {
+              sseState.isConnecting = false;
+              clearConnectingTimer();
+              onActivity();
+              startHeartbeat();
+              console.log("Media SSE connected");
+            };
 
-          eventSource.addEventListener("update", (event) => {
-            const jobUpdate = JSON.parse(event.data);
-            const job = jobUpdate.job;
+            es.onerror = (error) => {
+              console.warn("Media SSE error", error);
+              onActivity();
+              if (!sseState.es) return;
+              if (sseState.es.readyState === EventSource.CLOSED) {
+                cleanupES(false);
+                scheduleReconnect("closed");
+              } else if (sseState.es.readyState === EventSource.CONNECTING) {
+                scheduleReconnect("connecting");
+              }
+            };
 
-            // Check if this is a job completion that affects media
-            if (job.state === 2) {
-              // StateCompleted = 2
-              handleJobCompletion(job);
+            es.addEventListener("update", (event) => {
+              onActivity();
+              const jobUpdate = JSON.parse(event.data);
+              const job = jobUpdate.job;
+              if (job && job.state === 2) {
+                // StateCompleted = 2
+                handleJobCompletion(job);
+              }
+            });
+          } catch (e) {
+            console.error("Media SSE connect threw", e);
+            sseState.isConnecting = false;
+            scheduleReconnect("exception");
+          }
+        }
+
+        function setupLifecycle() {
+          if (sseState.lifecycleSetup) return;
+          sseState.lifecycleSetup = true;
+
+          window.addEventListener("online", () => {
+            resetBackoff();
+            connect();
+          });
+          window.addEventListener("offline", () => {
+            cleanupES(false);
+          });
+
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+              resetBackoff();
+              connect();
             }
           });
-        };
 
-        connectEventSource();
+          window.addEventListener("pageshow", () => {
+            resetBackoff();
+            connect();
+          });
 
-        window.addEventListener("beforeunload", (e) => {
-          if (eventSource) {
-            eventSource.close();
-            console.log("EventSource connection closed.");
-          }
-        });
+          window.addEventListener("pagehide", () => {
+            cleanupES(false);
+          });
 
-        window.addEventListener("online", connectEventSource);
-        window.addEventListener("offline", () => {
-          if (eventSource) {
-            eventSource.close();
-            console.log("EventSource closed due to offline status.");
-          }
-        });
+          window.addEventListener("beforeunload", () => {
+            cleanupES(true);
+          });
+        }
+
+        setupLifecycle();
+        connect();
       });
 
       // Grid helpers

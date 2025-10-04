@@ -1,12 +1,14 @@
 module github.com/stevecastle/shrike
 
-go 1.23.2
+go 1.24.0
+
+toolchain go1.24.7
 
 require (
 	github.com/getlantern/systray v1.2.2
 	github.com/google/uuid v1.6.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	golang.org/x/image v0.28.0
+	golang.org/x/image v0.31.0
 	modernc.org/sqlite v1.38.0
 )
 
@@ -19,6 +21,7 @@ require (
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
+	github.com/golang-must/must v1.0.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect

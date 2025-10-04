@@ -308,115 +308,267 @@
     </div>
 
     <script>
-      // EVENT SOURCE CONNECTION
+      // EVENT SOURCE CONNECTION (robust, lifecycle-aware)
       document.addEventListener("DOMContentLoaded", function () {
-        let eventSource = null;
-        const connectEventSource = () => {
+        const STREAM_URL = "/stream";
+        const EVENT_STDOUT = "stdout-{{.Job.ID}}";
+        const EVENT_UPDATE = "update";
+
+        const sseState = {
+          es: null,
+          reconnectTimer: null,
+          heartbeatTimer: null,
+          connectingTimer: null,
+          backoffMs: 1000,
+          maxBackoffMs: 30000,
+          isConnecting: false,
+          isExplicitlyClosed: false,
+          lastActivityTs: Date.now(),
+          lifecycleSetup: false,
+        };
+
+        function withJitter(ms) {
+          const jitter = Math.floor(ms * 0.2 * Math.random());
+          return ms + jitter;
+        }
+
+        function resetBackoff() {
+          sseState.backoffMs = 1000;
+        }
+
+        function onActivity() {
+          sseState.lastActivityTs = Date.now();
+          resetBackoff();
+        }
+
+        function stopHeartbeat() {
+          if (sseState.heartbeatTimer) {
+            clearInterval(sseState.heartbeatTimer);
+            sseState.heartbeatTimer = null;
+          }
+        }
+
+        function startHeartbeat() {
+          stopHeartbeat();
+          sseState.heartbeatTimer = setInterval(() => {
+            const inactiveMs = Date.now() - sseState.lastActivityTs;
+            // If we have been idle for too long, recreate the connection in case it's stale
+            if (inactiveMs > 45000) {
+              console.warn("SSE idle too long; recreating connection");
+              recreateConnection();
+            }
+          }, 15000);
+        }
+
+        function clearConnectingTimer() {
+          if (sseState.connectingTimer) {
+            clearTimeout(sseState.connectingTimer);
+            sseState.connectingTimer = null;
+          }
+        }
+
+        function scheduleReconnect(reason) {
+          if (sseState.isExplicitlyClosed) return;
+          if (sseState.reconnectTimer) return;
+          const delay = withJitter(sseState.backoffMs);
+          console.log(`SSE reconnect in ${delay}ms (${reason || ""})`);
+          sseState.reconnectTimer = setTimeout(() => {
+            sseState.reconnectTimer = null;
+            connect();
+          }, delay);
+          sseState.backoffMs = Math.min(
+            sseState.maxBackoffMs,
+            sseState.backoffMs * 2
+          );
+        }
+
+        function cleanupES(markExplicit) {
+          if (markExplicit) sseState.isExplicitlyClosed = true;
+          stopHeartbeat();
+          clearConnectingTimer();
+          if (sseState.es) {
+            try {
+              sseState.es.close();
+            } catch (e) {}
+          }
+          sseState.es = null;
+          sseState.isConnecting = false;
+        }
+
+        function recreateConnection() {
+          cleanupES(false);
+          connect();
+        }
+
+        function connect() {
+          if (sseState.isConnecting) return;
+          if (sseState.es && sseState.es.readyState !== EventSource.CLOSED)
+            return;
           if (!navigator.onLine) {
-            console.warn("Offline. EventSource will not connect.");
+            scheduleReconnect("offline");
+            return;
+          }
+          if (document.visibilityState === "hidden") {
+            scheduleReconnect("hidden");
             return;
           }
 
-          console.log("Connecting to EventSource...");
-          eventSource = new EventSource("/stream");
+          sseState.isConnecting = true;
+          try {
+            console.log("SSE connecting...");
+            const es = new EventSource(STREAM_URL);
+            sseState.es = es;
 
-          eventSource.onopen = () => {
-            console.log("EventSource connected.");
-          };
-
-          eventSource.onerror = (error) => {
-            console.error("EventSource error:", error);
-            if (eventSource.readyState === EventSource.CLOSED) {
-              console.log("Retrying EventSource connection in 3 seconds...");
-              setTimeout(connectEventSource, 3000); // Retry connection after 3 seconds
-            }
-          };
-
-          // Listen for stdout events and append the line to the terminal
-          eventSource.addEventListener("stdout-{{.Job.ID}}", function (e) {
-            var data = JSON.parse(e.data);
-            if (data.line) {
-              var container = document.querySelector(".terminal-content");
-              var newLine = document.createElement("div");
-              newLine.className = "terminal-line";
-              newLine.textContent = data.line;
-              container.appendChild(newLine);
-              container.parentElement.scrollTop =
-                container.parentElement.scrollHeight;
-            }
-          });
-
-          eventSource.addEventListener("update", function (e) {
-            var data = JSON.parse(e.data);
-            console.log(data);
-            if (data.job.id === "{{.Job.ID}}") {
-              // Update the jobs state
-              const stateString = jobStateToString(data.job.state);
-              const stateClass = jobStateToClass(data.job.state);
-
-              // Update status text content
-              document.getElementById("state").innerText = stateString;
-
-              // Update status icon and text CSS classes
-              const statusIcon = document.querySelector(".job-status");
-              const statusText = document.getElementById("state");
-
-              // Remove all possible state classes first
-              const stateClasses = [
-                "pending",
-                "in-progress",
-                "completed",
-                "cancelled",
-                "error",
-              ];
-              stateClasses.forEach((cls) => {
-                statusIcon.classList.remove(cls);
-                statusText.classList.remove(cls);
-              });
-
-              // Add the new state class
-              statusIcon.classList.add(stateClass);
-              statusText.classList.add(stateClass);
-
+            // Safety: if we are stuck in CONNECTING for too long, recreate
+            clearConnectingTimer();
+            sseState.connectingTimer = setTimeout(() => {
               if (
-                stateString === "Completed" ||
-                stateString === "Cancelled" ||
-                stateString === "Error"
+                sseState.es &&
+                sseState.es.readyState === EventSource.CONNECTING
               ) {
-                document.getElementById("cancel").style.display = "none";
+                console.warn("SSE stuck CONNECTING; recreating");
+                recreateConnection();
               }
+            }, 20000);
 
-              // Update either the completed or errored at time
-              if (data.job.completed_at) {
-                document.getElementById("completedAt").innerText =
-                  data.job.completed_at;
-              }
+            es.onopen = () => {
+              sseState.isConnecting = false;
+              clearConnectingTimer();
+              onActivity();
+              startHeartbeat();
+              console.log("SSE connected");
+            };
 
-              if (data.job.errored_at) {
-                document.getElementById("erroredAt").innerText =
-                  data.job.errored_at;
+            es.onerror = (error) => {
+              console.warn("SSE error", error);
+              onActivity();
+              if (!sseState.es) return; // already cleaned
+              if (sseState.es.readyState === EventSource.CLOSED) {
+                cleanupES(false);
+                scheduleReconnect("closed");
+              } else if (sseState.es.readyState === EventSource.CONNECTING) {
+                // Browser will retry; still schedule a guarded reconnect
+                scheduleReconnect("connecting");
               }
+            };
+
+            // Append stdout lines
+            es.addEventListener(EVENT_STDOUT, function (e) {
+              onActivity();
+              var data = JSON.parse(e.data);
+              if (data.line) {
+                var container = document.querySelector(".terminal-content");
+                if (!container) return;
+                var newLine = document.createElement("div");
+                newLine.className = "terminal-line";
+                newLine.textContent = data.line;
+                container.appendChild(newLine);
+                if (container.parentElement) {
+                  container.parentElement.scrollTop =
+                    container.parentElement.scrollHeight;
+                }
+              }
+            });
+
+            // Update job status
+            es.addEventListener(EVENT_UPDATE, function (e) {
+              onActivity();
+              var data = JSON.parse(e.data);
+              if (data.job && String(data.job.id) === "{{.Job.ID}}") {
+                const stateString = jobStateToString(data.job.state);
+                const stateClass = jobStateToClass(data.job.state);
+
+                var stateEl = document.getElementById("state");
+                if (stateEl) stateEl.innerText = stateString;
+
+                const statusIcon = document.querySelector(".job-status");
+                const statusText = document.getElementById("state");
+
+                const stateClasses = [
+                  "pending",
+                  "in-progress",
+                  "completed",
+                  "cancelled",
+                  "error",
+                ];
+                if (statusIcon && statusText) {
+                  stateClasses.forEach((cls) => {
+                    statusIcon.classList.remove(cls);
+                    statusText.classList.remove(cls);
+                  });
+                  statusIcon.classList.add(stateClass);
+                  statusText.classList.add(stateClass);
+                }
+
+                if (
+                  stateString === "Completed" ||
+                  stateString === "Cancelled" ||
+                  stateString === "Error"
+                ) {
+                  var cancelBtn = document.getElementById("cancel");
+                  if (cancelBtn) cancelBtn.style.display = "none";
+                }
+
+                if (data.job.completed_at) {
+                  var completedAt = document.getElementById("completedAt");
+                  if (completedAt)
+                    completedAt.innerText = data.job.completed_at;
+                }
+                if (data.job.errored_at) {
+                  var erroredAt = document.getElementById("erroredAt");
+                  if (erroredAt) erroredAt.innerText = data.job.errored_at;
+                }
+              }
+            });
+          } catch (e) {
+            console.error("SSE connect threw", e);
+            sseState.isConnecting = false;
+            scheduleReconnect("exception");
+          }
+        }
+
+        function setupLifecycle() {
+          if (sseState.lifecycleSetup) return;
+          sseState.lifecycleSetup = true;
+
+          // Online/offline
+          window.addEventListener("online", () => {
+            resetBackoff();
+            connect();
+          });
+          window.addEventListener("offline", () => {
+            cleanupES(false);
+          });
+
+          // Page visibility
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+              resetBackoff();
+              connect();
             }
           });
-        };
 
-        connectEventSource();
+          // bfcache lifecycle
+          window.addEventListener("pageshow", (e) => {
+            // When restored from bfcache, re-establish the connection
+            resetBackoff();
+            connect();
+          });
 
-        window.addEventListener("beforeunload", (e) => {
-          console.log(e);
-          if (eventSource) {
-            eventSource.close();
-            console.log("EventSource connection closed.");
-          }
-        });
+          window.addEventListener("pagehide", () => {
+            // Close without marking explicit so we can reconnect on pageshow
+            cleanupES(false);
+          });
 
-        window.addEventListener("online", connectEventSource);
-        window.addEventListener("offline", () => {
-          if (eventSource) {
-            eventSource.close();
-            console.log("EventSource closed due to offline status.");
-          }
-        });
+          // Hard unload fallback
+          window.addEventListener("beforeunload", () => {
+            cleanupES(true);
+          });
+        }
+
+        setupLifecycle();
+        // Initial connect (soon as DOM is ready)
+        connect();
       });
 
       function cancelJob(e) {
