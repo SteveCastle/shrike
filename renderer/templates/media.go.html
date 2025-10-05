@@ -2113,6 +2113,19 @@
             }
           });
 
+          // Window focus: ensure we are connected or refresh stale connection
+          window.addEventListener("focus", () => {
+            resetBackoff();
+            if (!sseState.es || sseState.es.readyState === EventSource.CLOSED) {
+              connect();
+            } else {
+              const inactiveMs = Date.now() - sseState.lastActivityTs;
+              if (inactiveMs > 15000) {
+                recreateConnection();
+              }
+            }
+          });
+
           window.addEventListener("pageshow", () => {
             resetBackoff();
             connect();

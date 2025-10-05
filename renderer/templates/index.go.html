@@ -442,6 +442,19 @@
             }
           });
 
+          // Window focus: ensure we are connected or refresh stale connection
+          window.addEventListener("focus", () => {
+            resetBackoff();
+            if (!sseState.es || sseState.es.readyState === EventSource.CLOSED) {
+              connect();
+            } else {
+              const inactiveMs = Date.now() - sseState.lastActivityTs;
+              if (inactiveMs > 15000) {
+                recreateConnection();
+              }
+            }
+          });
+
           window.addEventListener("pageshow", () => {
             // When returning via back/forward cache, ensure connection is re-established
             resetBackoff();
@@ -526,7 +539,6 @@
           .then((response) => response.json())
           .then((result) => {
             console.log("Server responded:", result);
-            alert(result.message || `Cleared ${result.cleared_count} jobs`);
           })
           .catch((err) => {
             console.error("Error:", err);
@@ -534,7 +546,7 @@
           })
           .finally(() => {
             button.disabled = false;
-            button.textContent = "Clear Non-Running Jobs";
+            button.textContent = "Clear All";
           });
       }
 
