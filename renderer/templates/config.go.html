@@ -101,11 +101,7 @@
   <body>
     <div class="container">
       <h1>Configuration</h1>
-      <nav class="card">
-        <a href="/">Jobs</a>
-        <a href="/media">Media Browser</a>
-        <a href="/config">Config</a>
-      </nav>
+      {{ template "topnav" . }}
 
       <div class="card">
         <div class="label">Config file path</div>

@@ -568,6 +568,93 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
+// Dashboard page handler
+// -----------------------------------------------------------------------------
+
+type dashboardTagCount struct {
+	Label    string
+	Category string
+	Count    int
+}
+
+type dashboardTemplateData struct {
+	TotalMedia         int
+	WithDescription    int
+	WithHash           int
+	WithSize           int
+	WithTags           int
+	WithoutDescription int
+	WithoutHash        int
+	WithoutSize        int
+	WithoutTags        int
+	TopTags            []dashboardTagCount
+}
+
+func dashboardHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		db := deps.DB
+
+		var total, withDesc, withHash, withSize, withTags int
+
+		// Total media
+		_ = db.QueryRow(`SELECT COUNT(*) FROM media`).Scan(&total)
+		// With description (non-empty)
+		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE description IS NOT NULL AND TRIM(description) <> ''`).Scan(&withDesc)
+		// With hash (non-empty)
+		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE hash IS NOT NULL AND TRIM(hash) <> ''`).Scan(&withHash)
+		// With size recorded
+		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE size IS NOT NULL`).Scan(&withSize)
+		// With at least one tag
+		_ = db.QueryRow(`SELECT COUNT(DISTINCT m.path)
+			FROM media m
+			JOIN media_tag_by_category mtbc ON mtbc.media_path = m.path`).Scan(&withTags)
+
+		// Top 10 tags
+		rows, err := db.Query(`
+            SELECT tag_label, category_label, COUNT(*) AS c
+            FROM media_tag_by_category
+            GROUP BY tag_label, category_label
+            ORDER BY c DESC
+            LIMIT 10`)
+		if err != nil {
+			// On error, continue with empty list
+		}
+		var topTags []dashboardTagCount
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var t dashboardTagCount
+				if err := rows.Scan(&t.Label, &t.Category, &t.Count); err == nil {
+					topTags = append(topTags, t)
+				}
+			}
+		}
+
+		data := dashboardTemplateData{
+			TotalMedia:         total,
+			WithDescription:    withDesc,
+			WithHash:           withHash,
+			WithSize:           withSize,
+			WithTags:           withTags,
+			WithoutDescription: total - withDesc,
+			WithoutHash:        total - withHash,
+			WithoutSize:        total - withSize,
+			WithoutTags:        total - withTags,
+			TopTags:            topTags,
+		}
+
+		if err := renderer.Templates().ExecuteTemplate(w, "dashboard", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Config page handlers
 // -----------------------------------------------------------------------------
 
@@ -954,6 +1041,7 @@ func main() {
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
 	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
+	mux.HandleFunc("/dashboard", renderer.ApplyMiddlewares(dashboardHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",

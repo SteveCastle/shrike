@@ -1,0 +1,211 @@
+{{ define "dashboard" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shrike Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(240px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background-color: #2d2d2d;
+        border-radius: 6px;
+        padding: 16px;
+      }
+      .metric {
+        color: #61dafb;
+        font-size: 2rem;
+        font-weight: bold;
+      }
+      .label {
+        color: #aaa;
+        margin-top: 6px;
+      }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: monospace;
+        color: #d4d4d4;
+      }
+      .table th,
+      .table td {
+        border-bottom: 1px solid #333;
+        padding: 8px;
+        text-align: left;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid #555;
+        background: #333;
+        color: #d4d4d4;
+        font-weight: bold;
+      }
+      .btn-primary {
+        background: #61dafb;
+        color: #000;
+        border-color: #61dafb;
+      }
+      .panel {
+        background: #232323;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 16px;
+      }
+      @media screen and (max-width: 800px) {
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Dashboard</h1>
+      {{ template "topnav" . }}
+
+      <div class="cards" style="margin-bottom: 16px">
+        <div class="card">
+          <div class="metric">{{.TotalMedia}}</div>
+          <div class="label">Total media items</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithDescription}} / {{.TotalMedia}}</div>
+          <div class="label">With descriptions</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithHash}} / {{.TotalMedia}}</div>
+          <div class="label">With hashes</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithSize}} / {{.TotalMedia}}</div>
+          <div class="label">With sizes</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithTags}} / {{.TotalMedia}}</div>
+          <div class="label">With tags</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px">
+        <h2 style="margin-top: 0">Top 10 Tags</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Tag</th>
+              <th>Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ if .TopTags }} {{ range .TopTags }}
+            <tr>
+              <td>{{.Category}}</td>
+              <td>{{.Label}}</td>
+              <td>{{.Count}}</td>
+            </tr>
+            {{ end }} {{ else }}
+            <tr>
+              <td colspan="3" style="color: #888">No tag data available</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2 style="margin-top: 0">Quick Actions</h2>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="runMetadataForUntagged()">
+            Generate tags for untagged images
+          </button>
+          <button class="btn btn-primary" onclick="runDescriptionsForNoDesc()">
+            Generate descriptions for items missing one
+          </button>
+          <button class="btn" onclick="runHashesForNoHash()">
+            Generate hashes for items missing one
+          </button>
+        </div>
+        <div id="qa-status" style="margin-top: 8px; color: #aaa"></div>
+      </div>
+    </div>
+
+    <script>
+      function setStatus(msg, kind) {
+        const el = document.getElementById("qa-status");
+        el.textContent = msg || "";
+        el.style.color = kind === "error" ? "#e06c75" : "#aaa";
+      }
+
+      function postCreate(input) {
+        return fetch("/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input }),
+        }).then((r) => {
+          if (!r.ok) throw new Error("request failed");
+          return r.json();
+        });
+      }
+
+      function runMetadataForUntagged() {
+        setStatus("Creating job for autotag on untagged images...");
+        // Prefer metadata --type autotag so we reuse the same pipeline
+        // Filter: images (by extension) AND tags:none
+        const query = "tags:none";
+        const args =
+          "--type autotag --apply all --query64=" +
+          btoa(unescape(encodeURIComponent(query)));
+        postCreate(`metadata ${args}`)
+          .then((res) => setStatus(`Job created: ${res.id}`, "ok"))
+          .catch((err) => setStatus("Error: " + err.message, "error"));
+      }
+
+      function runDescriptionsForNoDesc() {
+        setStatus("Creating job for descriptions on items without one...");
+        const query = 'description:""';
+        const args =
+          "--type description --apply all --query64=" +
+          btoa(unescape(encodeURIComponent(query)));
+        postCreate(`metadata ${args}`)
+          .then((res) => setStatus(`Job created: ${res.id}`, "ok"))
+          .catch((err) => setStatus("Error: " + err.message, "error"));
+      }
+
+      function runHashesForNoHash() {
+        setStatus("Creating job for hashes on items without one...");
+        const query = 'hash:""';
+        const args =
+          "--type hash --apply all --query64=" +
+          btoa(unescape(encodeURIComponent(query)));
+        postCreate(`metadata ${args}`)
+          .then((res) => setStatus(`Job created: ${res.id}`, "ok"))
+          .catch((err) => setStatus("Error: " + err.message, "error"));
+      }
+    </script>
+  </body>
+</html>
+{{ end }}

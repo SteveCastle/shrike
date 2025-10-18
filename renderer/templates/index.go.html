@@ -158,20 +158,7 @@
   <body>
     <div class="jobs-container">
       <h1>Shrike Job Manager</h1>
-      <nav
-        style="
-          margin: 10px 0;
-          padding: 10px;
-          background-color: #333;
-          border-radius: 4px;
-        "
-      >
-        <a href="/" style="margin-right: 20px; color: #61dafb">Jobs</a>
-        <a href="/media" style="margin-right: 20px; color: #61dafb"
-          >Media Browser</a
-        >
-        <a href="/config" style="color: #61dafb">Config</a>
-      </nav>
+      {{ template "topnav" . }}
       <form id="createForm">
         <!-- Removed the submit button. Now pressing Enter on the input triggers submit. -->
         <input
