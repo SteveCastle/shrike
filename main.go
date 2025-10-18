@@ -154,8 +154,55 @@ func initDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
 
+	// Best-effort: ensure helpful indexes exist
+	if err := ensureIndexes(db); err != nil {
+		log.Printf("warning: failed to ensure indexes: %v", err)
+	}
+
 	log.Printf("Connected to SQLite database at: %s", dbPath)
 	return db, nil
+}
+
+// ensureIndexes creates recommended indexes if the related tables exist.
+func ensureIndexes(db *sql.DB) error {
+	// Helper to detect if a table exists
+	tableExists := func(name string) bool {
+		var cnt int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&cnt)
+		return cnt > 0
+	}
+
+	// Indexes for media_tag_by_category
+	if tableExists("media_tag_by_category") {
+		stmts := []string{
+			"CREATE INDEX IF NOT EXISTS idx_mtbc_media_path ON media_tag_by_category(media_path)",
+			"CREATE INDEX IF NOT EXISTS idx_mtbc_tag_label ON media_tag_by_category(tag_label)",
+			"CREATE INDEX IF NOT EXISTS idx_mtbc_category_label ON media_tag_by_category(category_label)",
+			"CREATE INDEX IF NOT EXISTS idx_mtbc_tag_category ON media_tag_by_category(tag_label, category_label)",
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("creating index failed: %w", err)
+			}
+		}
+	}
+
+	// Indexes for media
+	if tableExists("media") {
+		stmts := []string{
+			"CREATE INDEX IF NOT EXISTS idx_media_path ON media(path)",
+			"CREATE INDEX IF NOT EXISTS idx_media_has_description ON media(description) WHERE description IS NOT NULL AND description <> ''",
+			"CREATE INDEX IF NOT EXISTS idx_media_has_hash ON media(hash) WHERE hash IS NOT NULL AND hash <> ''",
+			"CREATE INDEX IF NOT EXISTS idx_media_has_size ON media(size) WHERE size IS NOT NULL",
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("creating index failed: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -571,12 +618,6 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 // Dashboard page handler
 // -----------------------------------------------------------------------------
 
-type dashboardTagCount struct {
-	Label    string
-	Category string
-	Count    int
-}
-
 type dashboardTemplateData struct {
 	TotalMedia         int
 	WithDescription    int
@@ -587,7 +628,6 @@ type dashboardTemplateData struct {
 	WithoutHash        int
 	WithoutSize        int
 	WithoutTags        int
-	TopTags            []dashboardTagCount
 }
 
 func dashboardHandler(deps *Dependencies) http.HandlerFunc {
@@ -601,38 +641,17 @@ func dashboardHandler(deps *Dependencies) http.HandlerFunc {
 
 		var total, withDesc, withHash, withSize, withTags int
 
-		// Total media
-		_ = db.QueryRow(`SELECT COUNT(*) FROM media`).Scan(&total)
-		// With description (non-empty)
-		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE description IS NOT NULL AND TRIM(description) <> ''`).Scan(&withDesc)
-		// With hash (non-empty)
-		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE hash IS NOT NULL AND TRIM(hash) <> ''`).Scan(&withHash)
-		// With size recorded
-		_ = db.QueryRow(`SELECT COUNT(*) FROM media WHERE size IS NOT NULL`).Scan(&withSize)
-		// With at least one tag
-		_ = db.QueryRow(`SELECT COUNT(DISTINCT m.path)
-			FROM media m
-			JOIN media_tag_by_category mtbc ON mtbc.media_path = m.path`).Scan(&withTags)
-
-		// Top 10 tags
-		rows, err := db.Query(`
-            SELECT tag_label, category_label, COUNT(*) AS c
-            FROM media_tag_by_category
-            GROUP BY tag_label, category_label
-            ORDER BY c DESC
-            LIMIT 10`)
+		// Single round-trip to fetch all counts; avoids JOIN for with-tags
+		err := db.QueryRow(`
+            SELECT
+                (SELECT COUNT(*) FROM media) AS total,
+                (SELECT COUNT(*) FROM media WHERE description IS NOT NULL AND TRIM(description) <> '') AS with_desc,
+                (SELECT COUNT(*) FROM media WHERE hash IS NOT NULL AND TRIM(hash) <> '') AS with_hash,
+                (SELECT COUNT(*) FROM media WHERE size IS NOT NULL) AS with_size,
+                (SELECT COUNT(DISTINCT media_path) FROM media_tag_by_category) AS with_tags
+        `).Scan(&total, &withDesc, &withHash, &withSize, &withTags)
 		if err != nil {
-			// On error, continue with empty list
-		}
-		var topTags []dashboardTagCount
-		if rows != nil {
-			defer rows.Close()
-			for rows.Next() {
-				var t dashboardTagCount
-				if err := rows.Scan(&t.Label, &t.Category, &t.Count); err == nil {
-					topTags = append(topTags, t)
-				}
-			}
+			log.Printf("dashboard counts error: %v", err)
 		}
 
 		data := dashboardTemplateData{
@@ -645,7 +664,6 @@ func dashboardHandler(deps *Dependencies) http.HandlerFunc {
 			WithoutHash:        total - withHash,
 			WithoutSize:        total - withSize,
 			WithoutTags:        total - withTags,
-			TopTags:            topTags,
 		}
 
 		if err := renderer.Templates().ExecuteTemplate(w, "dashboard", data); err != nil {
