@@ -130,12 +130,11 @@
           value="{{.Config.OllamaBaseURL}}"
         />
         <div class="label">Ollama Model</div>
-        <input
-          id="ollama-model"
-          class="input"
-          type="text"
-          value="{{.Config.OllamaModel}}"
-        />
+        <select id="ollama-model" class="input">
+          <option value="{{.Config.OllamaModel}}">
+            {{.Config.OllamaModel}}
+          </option>
+        </select>
         <div class="label">Describe Prompt</div>
         <textarea id="describe-prompt" class="input" rows="4">
 {{.Config.DescribePrompt}}</textarea
@@ -287,6 +286,54 @@
           })
           .catch((err) => setStatus("Error: " + err, "error"));
       });
+
+      // Populate Ollama models select
+      (function populateOllamaModels() {
+        const select = document.getElementById("ollama-model");
+        const current = select.value.trim();
+        fetch("/ollama/models")
+          .then((r) => r.json())
+          .then((data) => {
+            const models = Array.isArray(data.models) ? data.models : [];
+            // Clear and rebuild options; preserve current selection if present
+            select.innerHTML = "";
+            // If no models returned, keep current as a free-text fallback option
+            if (models.length === 0 && current) {
+              const opt = document.createElement("option");
+              opt.value = current;
+              opt.textContent = current;
+              select.appendChild(opt);
+              return;
+            }
+            // Add a placeholder option
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = "Select a model";
+            select.appendChild(placeholder);
+            // Add returned models
+            for (const m of models) {
+              const opt = document.createElement("option");
+              opt.value = m;
+              opt.textContent = m;
+              select.appendChild(opt);
+            }
+            // Reselect current if present, otherwise keep placeholder
+            if (current) {
+              select.value = current;
+              // If current not in list, add it to the top
+              if (select.value !== current) {
+                const opt = document.createElement("option");
+                opt.value = current;
+                opt.textContent = current + " (current)";
+                select.insertBefore(opt, select.firstChild.nextSibling);
+                select.value = current;
+              }
+            }
+          })
+          .catch(() => {
+            // If the endpoint fails (e.g., ollama not installed), leave current value as-is
+          });
+      })();
     </script>
   </body>
 </html>

@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -72,6 +73,37 @@ func Set(c Config) {
 	cfgMu.Unlock()
 }
 
+func isJSONObject(raw []byte) bool {
+	raw = bytes.TrimSpace(raw)
+	return len(raw) > 0 && raw[0] == '{'
+}
+
+func deepMergeJSON(dst, src map[string]json.RawMessage) {
+	for k, v := range src {
+		if existing, ok := dst[k]; ok && isJSONObject(existing) && isJSONObject(v) {
+			var dstObj map[string]json.RawMessage
+			var srcObj map[string]json.RawMessage
+			if err := json.Unmarshal(existing, &dstObj); err != nil {
+				dst[k] = v
+				continue
+			}
+			if err := json.Unmarshal(v, &srcObj); err != nil {
+				dst[k] = v
+				continue
+			}
+			deepMergeJSON(dstObj, srcObj)
+			merged, err := json.Marshal(dstObj)
+			if err != nil {
+				dst[k] = v
+				continue
+			}
+			dst[k] = merged
+			continue
+		}
+		dst[k] = v
+	}
+}
+
 // getConfigPath returns the full path to the config.json file.
 func getConfigPath() (string, error) {
 	appDataDir := os.Getenv("APPDATA")
@@ -128,11 +160,30 @@ func Save(c Config) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return path, fmt.Errorf("failed to create config directory: %v", err)
 	}
-	data, err := json.MarshalIndent(c, "", "  ")
+	base := map[string]json.RawMessage{}
+	if existing, readErr := os.ReadFile(path); readErr == nil {
+		var tmp map[string]json.RawMessage
+		if err := json.Unmarshal(existing, &tmp); err == nil {
+			base = tmp
+		}
+	}
+
+	marshaled, err := json.Marshal(c)
 	if err != nil {
 		return path, fmt.Errorf("failed to marshal config: %v", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	incoming := map[string]json.RawMessage{}
+	if err := json.Unmarshal(marshaled, &incoming); err != nil {
+		return path, fmt.Errorf("failed to map config JSON: %v", err)
+	}
+
+	deepMergeJSON(base, incoming)
+
+	mergedData, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return path, fmt.Errorf("failed to marshal merged config: %v", err)
+	}
+	if err := os.WriteFile(path, mergedData, 0644); err != nil {
 		return path, fmt.Errorf("failed to write config file: %v", err)
 	}
 	Set(c)

@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -615,6 +616,69 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
+// Ollama models handler – lists available models via `ollama ls`
+// -----------------------------------------------------------------------------
+
+func ollamaModelsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Run `ollama ls --quiet` to get just model names, one per line.
+		// Fallback to `ollama ls` parsing if --quiet is unavailable.
+		var models []string
+
+		run := func(args ...string) ([]byte, error) {
+			cmd := exec.Command("ollama", args...)
+			// Best-effort timeout via context is not critical here; rely on default.
+			return cmd.Output()
+		}
+
+		// Try quiet first
+		out, err := run("ls", "--quiet")
+		if err != nil || len(out) == 0 {
+			// Fallback to regular `ollama ls` and parse first column
+			out, err = run("ls")
+		}
+		if err != nil {
+			log.Printf("ollama ls error: %v", err)
+			http.Error(w, "failed to list ollama models", http.StatusInternalServerError)
+			return
+		}
+
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			// When not quiet, lines are like: "llama3:latest  4.7 GB  2 weeks ago"
+			// Take the first whitespace-separated token.
+			if strings.Contains(line, " ") {
+				line = strings.Fields(line)[0]
+			}
+			// Some outputs include tags like name:tag – keep as-is so user can choose full ref.
+			models = append(models, line)
+		}
+
+		// Deduplicate while preserving order
+		seen := map[string]struct{}{}
+		unique := make([]string, 0, len(models))
+		for _, m := range models {
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			unique = append(unique, m)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": unique})
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Dashboard page handler
 // -----------------------------------------------------------------------------
 
@@ -1060,6 +1124,7 @@ func main() {
 	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
 	mux.HandleFunc("/dashboard", renderer.ApplyMiddlewares(dashboardHandler(deps)))
+	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",
