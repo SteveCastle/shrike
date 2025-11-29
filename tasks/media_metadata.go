@@ -73,6 +73,7 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			q.ErrorJob(j.ID)
 			return err
 		}
+		q.PushJobStdout(j.ID, fmt.Sprintf("Query matched %d items before filtering", len(filesToProcess)))
 	} else if strings.TrimSpace(j.Input) != "" {
 		raw := strings.TrimSpace(j.Input)
 		if raw == "" {
@@ -130,6 +131,9 @@ func metadataTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		q.CompleteJob(j.ID)
 		return nil
 	}
+
+	// Announce the final total to process before any specific metadata type is run
+	q.PushJobStdout(j.ID, fmt.Sprintf("Total files to process: %d", len(filesToProcess)))
 
 	for _, metadataType := range metadataTypes {
 		mType := strings.ToLower(metadataType)

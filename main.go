@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -245,14 +246,25 @@ func homeHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// GET – render job list
-		data := ListTemplateData{Jobs: deps.Queue.GetJobs()}
-		if err := renderer.Templates().ExecuteTemplate(w, "home", data); err != nil {
+		// GET – render quick jobs launcher
+		if err := renderer.Templates().ExecuteTemplate(w, "home", nil); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
 }
 
+func jobsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+		data := ListTemplateData{Jobs: deps.Queue.GetJobs()}
+		if err := renderer.Templates().ExecuteTemplate(w, "jobs", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
 func detailHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -679,10 +691,10 @@ func ollamaModelsHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
-// Dashboard page handler
+// Stats page handler
 // -----------------------------------------------------------------------------
 
-type dashboardTemplateData struct {
+type statsTemplateData struct {
 	TotalMedia         int
 	WithDescription    int
 	WithHash           int
@@ -694,7 +706,7 @@ type dashboardTemplateData struct {
 	WithoutTags        int
 }
 
-func dashboardHandler(deps *Dependencies) http.HandlerFunc {
+func statsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
@@ -715,10 +727,10 @@ func dashboardHandler(deps *Dependencies) http.HandlerFunc {
                 (SELECT COUNT(DISTINCT media_path) FROM media_tag_by_category) AS with_tags
         `).Scan(&total, &withDesc, &withHash, &withSize, &withTags)
 		if err != nil {
-			log.Printf("dashboard counts error: %v", err)
+			log.Printf("stats counts error: %v", err)
 		}
 
-		data := dashboardTemplateData{
+		data := statsTemplateData{
 			TotalMedia:         total,
 			WithDescription:    withDesc,
 			WithHash:           withHash,
@@ -730,7 +742,7 @@ func dashboardHandler(deps *Dependencies) http.HandlerFunc {
 			WithoutTags:        total - withTags,
 		}
 
-		if err := renderer.Templates().ExecuteTemplate(w, "dashboard", data); err != nil {
+		if err := renderer.Templates().ExecuteTemplate(w, "stats", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -791,6 +803,7 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 				return
 			}
 
+			oldCfg := currentConfig
 			oldDBPath := currentConfig.DBPath
 			newCfg := currentConfig
 			newCfg.DBPath = req.DBPath
@@ -825,7 +838,8 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 				return
 			}
 
-			if req.DBPath != oldDBPath {
+			dbChanged := req.DBPath != oldDBPath
+			if dbChanged {
 				if err := switchDatabase(req.DBPath); err != nil {
 					http.Error(w, "failed to switch database: "+err.Error(), http.StatusInternalServerError)
 					return
@@ -833,12 +847,16 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 			}
 			currentConfig = newCfg
 
+			// Determine if any config field actually changed
+			changed := !reflect.DeepEqual(oldCfg, newCfg)
+
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":       "ok",
 				"configPath":   cfgPath,
 				"activeDBPath": currentConfig.DBPath,
-				"changed":      req.DBPath != oldDBPath,
+				"changed":      changed,
+				"dbChanged":    dbChanged,
 			})
 		default:
 			http.Error(w, "Use GET or POST", http.StatusMethodNotAllowed)
@@ -1110,6 +1128,7 @@ func main() {
 	// ––– routes –––
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(deps)))
+	mux.HandleFunc("/jobs", renderer.ApplyMiddlewares(jobsHandler(deps)))
 	mux.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(deps)))
 	mux.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(deps)))
 	mux.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(deps)))
@@ -1123,7 +1142,7 @@ func main() {
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
 	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
-	mux.HandleFunc("/dashboard", renderer.ApplyMiddlewares(dashboardHandler(deps)))
+	mux.HandleFunc("/stats", renderer.ApplyMiddlewares(statsHandler(deps)))
 	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))
 
 	// Serve embedded static files

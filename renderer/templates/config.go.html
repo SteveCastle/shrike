@@ -391,8 +391,10 @@
           .then((res) => {
             activeDbPathEl.textContent = res.activeDBPath || dbPath;
             setStatus(
-              res.changed
+              res.dbChanged
                 ? "Saved and switched database."
+                : res.changed
+                ? "Saved."
                 : "Saved (no change).",
               "success"
             );

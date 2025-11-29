@@ -31,24 +31,17 @@ func generateAutoTags(ctx context.Context, q *jobqueue.Queue, jobID string, file
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Found %d available tags in database", len(availableTags)))
 
-	processed := 0
+	// Pre-filter to compute exact candidates and total for progress
+	var candidates []string
 	for _, filePath := range filePaths {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: file does not exist: %s", filePath))
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(filePath))
-		isImage := false
 		switch ext {
 		case ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic":
-			isImage = true
-		}
-		if !isImage {
+		default:
 			continue
 		}
 		if !overwrite {
@@ -60,6 +53,21 @@ func generateAutoTags(ctx context.Context, q *jobqueue.Queue, jobID string, file
 			if len(existingTags) > 0 {
 				continue
 			}
+		}
+		candidates = append(candidates, filePath)
+	}
+	if len(candidates) == 0 {
+		q.PushJobStdout(jobID, "Auto-tag: 0 image files to process")
+		return nil
+	}
+	q.PushJobStdout(jobID, fmt.Sprintf("Auto-tag: %d image files to process", len(candidates)))
+
+	processed := 0
+	for i, filePath := range candidates {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		selectedTags, err := generateAutoTagsWithVision(ctx, filePath, availableTags, model)
 		if err != nil {
@@ -86,9 +94,7 @@ func generateAutoTags(ctx context.Context, q *jobqueue.Queue, jobID string, file
 			tagLabels[i] = tag.Label
 		}
 		q.PushJobStdout(jobID, fmt.Sprintf("Auto-tagged %s with: %s", filepath.Base(filePath), strings.Join(tagLabels, ", ")))
-		if processed%10 == 0 || processed == len(filePaths) {
-			q.PushJobStdout(jobID, fmt.Sprintf("Auto-tag progress: %d image files processed", processed))
-		}
+		q.PushJobStdout(jobID, fmt.Sprintf("Auto-tag %d/%d: %s", i+1, len(candidates), filepath.Base(filePath)))
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Generated auto-tags for %d image files", processed))
 	return nil

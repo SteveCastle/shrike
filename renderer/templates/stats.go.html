@@ -1,0 +1,89 @@
+{{ define "stats" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shrike Stats</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(240px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background-color: #2d2d2d;
+        border-radius: 6px;
+        padding: 16px;
+      }
+      .metric {
+        color: #61dafb;
+        font-size: 2rem;
+        font-weight: bold;
+      }
+      .label {
+        color: #aaa;
+        margin-top: 6px;
+      }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: monospace;
+        color: #d4d4d4;
+      }
+      .table th,
+      .table td {
+        border-bottom: 1px solid #333;
+        padding: 8px;
+        text-align: left;
+      }
+      @media screen and (max-width: 800px) {
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Stats</h1>
+      {{ template "topnav" . }}
+
+      <div class="cards" style="margin-bottom: 16px">
+        <div class="card">
+          <div class="metric">{{.TotalMedia}}</div>
+          <div class="label">Total media items</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithDescription}} / {{.TotalMedia}}</div>
+          <div class="label">With descriptions</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithHash}} / {{.TotalMedia}}</div>
+          <div class="label">With hashes</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithSize}} / {{.TotalMedia}}</div>
+          <div class="label">With sizes</div>
+        </div>
+        <div class="card">
+          <div class="metric">{{.WithTags}} / {{.TotalMedia}}</div>
+          <div class="label">With tags</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+{{ end }}

@@ -4,553 +4,242 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Shrike Job Manager</title>
+    <title>Shrike – Quick Jobs</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
-      .jobs-container {
-        max-width: 1200px;
+      .container {
+        max-width: 960px;
         margin: 0 auto;
         padding: 20px;
       }
-
       nav {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 10px;
       }
-
-      .jobs-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: monospace;
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        margin: 0;
-      }
-
-      .jobs-header,
-      .jobs-row {
+      .grid {
         display: grid;
-        grid-template-columns: 60px 2fr 2fr 3fr 2fr 1.5fr;
-        gap: 8px;
-        border-bottom: 1px solid #333;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 16px;
       }
-
-      .jobs-header {
-        font-weight: bold;
-        background-color: #333;
-        color: #ffffff;
-        position: sticky;
-        top: 0;
-        z-index: 10;
+      .card {
+        background: #232323;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 16px;
       }
-
-      .jobs-cell {
-        position: relative;
-        padding: 10px;
-        text-align: left;
-        box-sizing: border-box;
+      .card h3 {
+        margin: 0 0 8px 0;
+      }
+      .btn {
+        padding: 8px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid #555;
+        background: #333;
         color: #d4d4d4;
-        white-space: nowrap;
-        display: flex;
-        align-items: center;
-        overflow: hidden;
+        font-weight: bold;
       }
-
-      #uri {
+      .btn-primary {
+        background: #61dafb;
+        color: #000;
+        border-color: #61dafb;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .input {
         width: 100%;
-        padding: 10px 12px;
-        box-sizing: border-box;
+        padding: 8px 10px;
         border-radius: 4px;
         border: 1px solid #333;
         background-color: #111;
         color: #d4d4d4;
         font-family: monospace;
-        font-size: 16px;
+        font-size: 14px;
+        box-sizing: border-box;
       }
-
-      .jobs-cell.state {
-        justify-content: center;
+      label {
+        color: #aaa;
       }
-
-      .jobs-cell.command {
-        font-family: monospace;
-        color: #61dafb;
-        white-space: normal;
-        word-break: break-all;
-      }
-
-      .jobs-cell.arguments {
-        color: #98c379;
-        white-space: normal;
-        word-break: break-word;
-      }
-
-      .jobs-cell.input {
-        color: #e5c07b;
-        white-space: normal;
-        word-break: break-word;
-        max-height: 140px;
-        overflow-y: auto;
-      }
-
-      .jobs-cell.created {
-        color: #d4d4d4;
-        font-size: 0.9em;
-      }
-
-      .jobs-cell.actions {
-        justify-content: center;
-        gap: 5px;
-        flex-wrap: wrap;
-        white-space: normal;
-      }
-
-      /* Responsive adjustments */
       @media screen and (max-width: 800px) {
-        .jobs-container {
-          padding: 12px;
-        }
-
-        nav {
-          gap: 8px;
-        }
-
-        h1 {
-          font-size: 1.4em;
-        }
-
-        .jobs-header,
-        .jobs-row {
+        .grid {
           grid-template-columns: 1fr;
-          gap: 0;
-        }
-
-        .jobs-cell {
-          padding: 5px 10px;
-          border-bottom: 1px dotted #444;
-        }
-
-        .jobs-cell:before {
-          content: attr(data-label) ": ";
-          font-weight: bold;
-          color: #aaa;
-          margin-right: 10px;
-        }
-
-        .jobs-header {
-          display: none;
-        }
-
-        .jobs-cell.actions {
-          justify-content: stretch;
-          gap: 8px;
-        }
-
-        .jobs-cell.actions button {
-          flex: 1 1 auto;
-          min-width: 120px;
         }
       }
     </style>
   </head>
   <body>
-    <div class="jobs-container">
-      <h1>Shrike Job Manager</h1>
+    <div class="container">
+      <h1>Quick Jobs</h1>
       {{ template "topnav" . }}
-      <form id="createForm">
-        <!-- Removed the submit button. Now pressing Enter on the input triggers submit. -->
-        <input
-          type="text"
-          name="uri"
-          id="uri"
-          placeholder="Type command and press Enter..."
-          autofocus
-        />
-      </form>
 
-      <!-- A list where we will append incoming messages -->
-      <div class="jobs-table">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          "
-        >
-          <h2 style="margin: 0; color: #d4d4d4; font-size: 1.2em">Jobs</h2>
-          <button
-            id="clearNonRunningBtn"
-            onClick="clearNonRunningJobs()"
-            style="
-              background: transparent;
-              border: 1px solid #666;
-              color: #d4d4d4;
-              font-family: inherit;
-              font-size: 0.85em;
-              padding: 0.4em 0.8em;
-              cursor: pointer;
-              border-radius: 3px;
-              transition: all 0.2s ease;
-            "
-            onmouseover="this.style.borderColor='#999'; this.style.color='#fff'"
-            onmouseout="this.style.borderColor='#666'; this.style.color='#d4d4d4'"
-          >
-            Clear All
+      <div class="grid" style="margin-top: 12px">
+        <div class="card">
+          <h3>Ingest media from path</h3>
+          <p style="color: #aaa; margin: 4px 0 8px 0">
+            Enter a local folder path to scan and ingest media files.
+          </p>
+          <div class="row" style="margin-bottom: 8px">
+            <input
+              class="input"
+              id="ingestPath"
+              name="ingestPath"
+              list="pathdir-suggestions"
+              placeholder="e.g. C:\Media\New"
+            />
+            <datalist id="pathdir-suggestions"></datalist>
+          </div>
+          <div class="row" style="margin-bottom: 12px">
+            <label for="ingestRecursive" style="display: inline-flex; gap: 6px"
+              ><input type="checkbox" id="ingestRecursive" /> Scan
+              recursively</label
+            >
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="createIngestJob()">
+              Start ingest
+            </button>
+          </div>
+          <div id="ingestStatus" style="color: #aaa; margin-top: 8px"></div>
+        </div>
+
+        <div class="card">
+          <h3>Generate transcripts (missing only)</h3>
+          <p style="color: #aaa; margin-top: 4px">
+            Create a job to generate transcripts for items without one.
+          </p>
+          <button class="btn btn-primary" onclick="createTranscriptsJob()">
+            Start transcripts job
           </button>
         </div>
-        <div class="jobs-header">
-          <div class="jobs-cell">State</div>
-          <div class="jobs-cell">Command</div>
-          <div class="jobs-cell">Arguments</div>
-          <div class="jobs-cell">Input</div>
-          <div class="jobs-cell">CreatedAt</div>
-          <div class="jobs-cell">Actions</div>
+
+        <div class="card">
+          <h3>Generate descriptions (missing only)</h3>
+          <p style="color: #aaa; margin-top: 4px">
+            Create a job to generate descriptions for items with none.
+          </p>
+          <button class="btn btn-primary" onclick="createDescriptionsJob()">
+            Start descriptions job
+          </button>
         </div>
-        <div id="jobs" class="table-body">
-          {{range .Jobs}} {{template "jobRow" .}} {{end}}
+
+        <div class="card">
+          <h3>Auto-tag with ONNX tagger (untagged images)</h3>
+          <p style="color: #aaa; margin-top: 4px">
+            Use the ONNX tagger to add Suggested tags where none exist.
+          </p>
+          <button class="btn btn-primary" onclick="createOnnxAutotagJob()">
+            Start ONNX auto-tag
+          </button>
+        </div>
+
+        <div class="card">
+          <h3>Cleanup database (remove orphans)</h3>
+          <p style="color: #aaa; margin-top: 4px">
+            Remove media entries whose files are missing from disk.
+          </p>
+          <button class="btn btn-primary" onclick="createCleanupJob()">
+            Start cleanup
+          </button>
         </div>
       </div>
+
+      <div style="margin-top: 20px; color: #aaa">
+        View progress in <a href="/jobs" style="color: #61dafb">Jobs</a>.
+      </div>
     </div>
+
     <script>
-      document.addEventListener("DOMContentLoaded", function () {
-        // Handle form submission by sending a fetch request
-        document
-          .getElementById("createForm")
-          .addEventListener("submit", function (e) {
-            e.preventDefault();
-            const input = document.getElementById("uri").value;
-
-            // Send a POST request to the /create endpoint
-            fetch("/create", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ input }),
-            })
-              .then((response) => response.text())
-              .then((result) => {
-                console.log("Server responded:", result);
-                // Clear the input after submit
-                document.getElementById("uri").value = "";
-              })
-              .catch((err) => console.error("Error:", err));
-          });
-      });
-
-      document.addEventListener("DOMContentLoaded", function () {
-        const STREAM_URL = "/stream";
-
-        const sseState = {
-          es: null,
-          reconnectTimer: null,
-          heartbeatTimer: null,
-          connectingTimer: null,
-          backoffMs: 1000,
-          maxBackoffMs: 30000,
-          isConnecting: false,
-          isExplicitlyClosed: false,
-          lastActivityTs: Date.now(),
-          lifecycleSetup: false,
-        };
-
-        function withJitter(ms) {
-          const jitter = Math.floor(ms * 0.2 * Math.random());
-          return ms + jitter;
-        }
-
-        function resetBackoff() {
-          sseState.backoffMs = 1000;
-        }
-
-        function onActivity() {
-          sseState.lastActivityTs = Date.now();
-          resetBackoff();
-        }
-
-        function stopHeartbeat() {
-          if (sseState.heartbeatTimer) {
-            clearInterval(sseState.heartbeatTimer);
-            sseState.heartbeatTimer = null;
-          }
-        }
-
-        function startHeartbeat() {
-          stopHeartbeat();
-          sseState.heartbeatTimer = setInterval(() => {
-            const inactiveMs = Date.now() - sseState.lastActivityTs;
-            if (inactiveMs > 45000) {
-              console.warn("Index SSE idle too long; recreating connection");
-              recreateConnection();
-            }
-          }, 15000);
-        }
-
-        function clearConnectingTimer() {
-          if (sseState.connectingTimer) {
-            clearTimeout(sseState.connectingTimer);
-            sseState.connectingTimer = null;
-          }
-        }
-
-        function scheduleReconnect(reason) {
-          if (sseState.isExplicitlyClosed) return;
-          if (sseState.reconnectTimer) return;
-          const delay = withJitter(sseState.backoffMs);
-          console.log(`Index SSE reconnect in ${delay}ms (${reason || ""})`);
-          sseState.reconnectTimer = setTimeout(() => {
-            sseState.reconnectTimer = null;
-            connect();
-          }, delay);
-          sseState.backoffMs = Math.min(
-            sseState.maxBackoffMs,
-            sseState.backoffMs * 2
-          );
-        }
-
-        function cleanupES(markExplicit) {
-          if (markExplicit) sseState.isExplicitlyClosed = true;
-          stopHeartbeat();
-          clearConnectingTimer();
-          if (sseState.es) {
-            try {
-              sseState.es.close();
-            } catch (e) {}
-          }
-          sseState.es = null;
-          sseState.isConnecting = false;
-        }
-
-        function recreateConnection() {
-          cleanupES(false);
-          connect();
-        }
-
-        function connect() {
-          if (sseState.isConnecting) return;
-          if (sseState.es && sseState.es.readyState !== EventSource.CLOSED)
-            return;
-          if (!navigator.onLine) {
-            scheduleReconnect("offline");
-            return;
-          }
-          if (document.visibilityState === "hidden") {
-            scheduleReconnect("hidden");
-            return;
-          }
-
-          sseState.isConnecting = true;
-          try {
-            console.log("Connecting to EventSource...");
-            const es = new EventSource(STREAM_URL);
-            sseState.es = es;
-
-            clearConnectingTimer();
-            sseState.connectingTimer = setTimeout(() => {
-              if (
-                sseState.es &&
-                sseState.es.readyState === EventSource.CONNECTING
-              ) {
-                console.warn("Index SSE stuck CONNECTING; recreating");
-                recreateConnection();
-              }
-            }, 20000);
-
-            es.onopen = () => {
-              sseState.isConnecting = false;
-              clearConnectingTimer();
-              onActivity();
-              startHeartbeat();
-              console.log("EventSource connected.");
-            };
-
-            es.onerror = (error) => {
-              console.warn("Index SSE error", error);
-              onActivity();
-              if (!sseState.es) return;
-              if (sseState.es.readyState === EventSource.CLOSED) {
-                cleanupES(false);
-                scheduleReconnect("closed");
-              } else if (sseState.es.readyState === EventSource.CONNECTING) {
-                scheduleReconnect("connecting");
-              }
-            };
-
-            es.addEventListener("create", (event) => {
-              onActivity();
-              const newJob = JSON.parse(event.data);
-              const node = htmlToNode(newJob.html);
-              const jobsElement = document.getElementById("jobs");
-              if (jobsElement && node) {
-                jobsElement.insertBefore(node, jobsElement.firstChild);
-              }
-            });
-
-            es.addEventListener("update", (event) => {
-              onActivity();
-              const modifiedJob = JSON.parse(event.data);
-              const node = htmlToNode(modifiedJob.html);
-              const jobElement = document.getElementById(modifiedJob.job.id);
-              if (jobElement && node) {
-                jobElement.replaceWith(node);
-              }
-            });
-
-            es.addEventListener("delete", (event) => {
-              onActivity();
-              const message = JSON.parse(event.data);
-              const jobElement = document.getElementById(message.job?.id);
-              if (jobElement) jobElement.remove();
-            });
-          } catch (e) {
-            console.error("Index SSE connect threw", e);
-            sseState.isConnecting = false;
-            scheduleReconnect("exception");
-          }
-        }
-
-        function setupLifecycle() {
-          if (sseState.lifecycleSetup) return;
-          sseState.lifecycleSetup = true;
-
-          window.addEventListener("online", () => {
-            resetBackoff();
-            connect();
-          });
-          window.addEventListener("offline", () => {
-            cleanupES(false);
-          });
-
-          document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") {
-              resetBackoff();
-              connect();
-            }
-          });
-
-          // Window focus: ensure we are connected or refresh stale connection
-          window.addEventListener("focus", () => {
-            resetBackoff();
-            if (!sseState.es || sseState.es.readyState === EventSource.CLOSED) {
-              connect();
-            } else {
-              const inactiveMs = Date.now() - sseState.lastActivityTs;
-              if (inactiveMs > 15000) {
-                recreateConnection();
-              }
-            }
-          });
-
-          window.addEventListener("pageshow", () => {
-            // When returning via back/forward cache, ensure connection is re-established
-            resetBackoff();
-            connect();
-          });
-
-          window.addEventListener("pagehide", () => {
-            // Close without marking explicit so we reconnect automatically on pageshow
-            cleanupES(false);
-          });
-
-          window.addEventListener("beforeunload", () => {
-            // Explicit close; no auto reconnect if the page is really unloading
-            cleanupES(true);
-          });
-        }
-
-        setupLifecycle();
-        connect();
-      });
-
-      // Handle Cancel Button Click
-      function cancelJob(e) {
-        e.preventDefault();
-        const id = e.target.getAttribute("data-id");
-        fetch(`/job/${id}/cancel`, {
+      function b64(s) {
+        return btoa(unescape(encodeURIComponent(s)));
+      }
+      function postCreate(input) {
+        return fetch("/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-        })
-          .then((response) => response.text())
-          .then((result) => {
-            console.log("Server responded:", result);
-          })
-          .catch((err) => console.error("Error:", err));
+          body: JSON.stringify({ input }),
+        }).then((r) => {
+          if (!r.ok) throw new Error("request failed");
+          return r.json();
+        });
       }
-
-      function restart(e) {
-        e.preventDefault();
-        const id = e.target.getAttribute("data-id");
-        fetch(`/job/${id}/copy`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        })
-          .then((response) => response.text())
-          .then((result) => {
-            console.log("Server responded:", result);
+      function createTranscriptsJob() {
+        const query = 'transcript:""';
+        const args = "--type transcript --apply all --query64=" + b64(query);
+        postCreate(`metadata ${args}`)
+          .then((res) => {
+            alert("Transcripts job created: " + res.id);
           })
-          .catch((err) => console.error("Error:", err));
+          .catch((err) => alert("Error: " + err.message));
       }
-
-      function removeJob(e) {
-        e.preventDefault();
-        const id = e.target.getAttribute("data-id");
-        fetch(`/job/${id}/remove`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        })
-          .then((response) => response.text())
-          .then((result) => {
-            console.log("Server responded:", result);
+      function createDescriptionsJob() {
+        const query = 'description:""';
+        const args = "--type description --apply all --query64=" + b64(query);
+        postCreate(`metadata ${args}`)
+          .then((res) => {
+            alert("Descriptions job created: " + res.id);
           })
-          .catch((err) => console.error("Error:", err));
+          .catch((err) => alert("Error: " + err.message));
       }
-
-      function clearNonRunningJobs() {
-        if (
-          !confirm(
-            "Are you sure you want to clear all non-running jobs? This action cannot be undone."
-          )
-        ) {
+      function createOnnxAutotagJob() {
+        const query = "tags:none";
+        const args = "--query64=" + b64(query);
+        postCreate(`autotag ${args}`)
+          .then((res) => {
+            alert("ONNX autotag job created: " + res.id);
+          })
+          .catch((err) => alert("Error: " + err.message));
+      }
+      function createIngestJob() {
+        const statusEl = document.getElementById("ingestStatus");
+        const path = (document.getElementById("ingestPath").value || "").trim();
+        const recursive = document.getElementById("ingestRecursive").checked;
+        if (!path) {
+          statusEl.style.color = "#e06c75";
+          statusEl.textContent = "Please enter a folder path.";
           return;
         }
-
-        const button = document.getElementById("clearNonRunningBtn");
-        button.disabled = true;
-        button.textContent = "Clearing...";
-
-        fetch("/jobs/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        })
-          .then((response) => response.json())
-          .then((result) => {
-            console.log("Server responded:", result);
+        statusEl.style.color = "#aaa";
+        statusEl.textContent = "Creating ingest job...";
+        const args = (recursive ? "--recursive " : "") + `"${path}"`;
+        postCreate(`ingest ${args}`)
+          .then((res) => {
+            statusEl.style.color = "#aaa";
+            statusEl.textContent = "Ingest job created: " + res.id;
           })
           .catch((err) => {
-            console.error("Error:", err);
-            alert("Error clearing jobs. Please try again.");
-          })
-          .finally(() => {
-            button.disabled = false;
-            button.textContent = "Clear All";
+            statusEl.style.color = "#e06c75";
+            statusEl.textContent = "Error: " + err.message;
           });
       }
-
-      function htmlToNode(html) {
-        const template = document.createElement("template");
-        template.innerHTML = html.trim();
-        const nNodes = template.content.childNodes.length;
-        if (nNodes !== 1) {
-          throw new Error(
-            `html parameter must represent a single node; got ${nNodes}. ` +
-              "Note that leading or trailing spaces around an element in your " +
-              'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
-              "the element; call .trim() on your input to avoid this."
-          );
-        }
-        return template.content.firstChild;
+      function createCleanupJob() {
+        postCreate("cleanup")
+          .then((res) => {
+            alert("Cleanup job created: " + res.id);
+          })
+          .catch((err) => alert("Error: " + err.message));
       }
+      // Populate directory suggestions
+      (function loadPathDirSuggestions() {
+        fetch("/media/suggest?kind=pathdir&limit=50")
+          .then((r) => r.json())
+          .then((data) => {
+            const list = document.getElementById("pathdir-suggestions");
+            if (!list || !Array.isArray(data.suggestions)) return;
+            list.innerHTML = "";
+            data.suggestions.forEach((p) => {
+              const opt = document.createElement("option");
+              opt.value = p;
+              list.appendChild(opt);
+            });
+          })
+          .catch(() => {});
+      })();
     </script>
   </body>
 </html>

@@ -31,13 +31,9 @@ import (
 
 // generateDescriptions generates descriptions for media files using Ollama
 func generateDescriptions(ctx context.Context, q *jobqueue.Queue, jobID string, filePaths []string, overwrite bool, model string) error {
-	processed := 0
+	// Pre-filter to compute exact candidates and total for progress
+	var candidates []string
 	for _, filePath := range filePaths {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: file does not exist: %s", filePath))
 			continue
@@ -52,6 +48,21 @@ func generateDescriptions(ctx context.Context, q *jobqueue.Queue, jobID string, 
 				continue
 			}
 		}
+		candidates = append(candidates, filePath)
+	}
+	if len(candidates) == 0 {
+		q.PushJobStdout(jobID, "Description: 0 files to process")
+		return nil
+	}
+	q.PushJobStdout(jobID, fmt.Sprintf("Description: %d files to process", len(candidates)))
+
+	processed := 0
+	for i, filePath := range candidates {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		description, err := describeFileWithOllama(ctx, filePath, model)
 		if err != nil {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to describe %s: %v", filePath, err))
@@ -62,9 +73,7 @@ func generateDescriptions(ctx context.Context, q *jobqueue.Queue, jobID string, 
 			continue
 		}
 		processed++
-		if processed%10 == 0 || processed == len(filePaths) {
-			q.PushJobStdout(jobID, fmt.Sprintf("Description progress: %d/%d files processed", processed, len(filePaths)))
-		}
+		q.PushJobStdout(jobID, fmt.Sprintf("Description %d/%d: %s", i+1, len(candidates), filepath.Base(filePath)))
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Generated descriptions for %d files", processed))
 	return nil
@@ -72,20 +81,13 @@ func generateDescriptions(ctx context.Context, q *jobqueue.Queue, jobID string, 
 
 // generateTranscripts generates transcripts for video files using faster-whisper
 func generateTranscripts(ctx context.Context, q *jobqueue.Queue, jobID string, filePaths []string, overwrite bool) error {
-	processed := 0
+	// Pre-filter to compute exact candidates and total for progress
+	var candidates []string
 	for _, filePath := range filePaths {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		ext := strings.ToLower(filepath.Ext(filePath))
-		isVideo := false
 		switch ext {
 		case ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv":
-			isVideo = true
-		}
-		if !isVideo {
+		default:
 			continue
 		}
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -102,6 +104,21 @@ func generateTranscripts(ctx context.Context, q *jobqueue.Queue, jobID string, f
 				continue
 			}
 		}
+		candidates = append(candidates, filePath)
+	}
+	if len(candidates) == 0 {
+		q.PushJobStdout(jobID, "Transcript: 0 video files to process")
+		return nil
+	}
+	q.PushJobStdout(jobID, fmt.Sprintf("Transcript: %d video files to process", len(candidates)))
+
+	processed := 0
+	for i, filePath := range candidates {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		transcript, err := generateTranscriptWithFasterWhisper(ctx, filePath)
 		if err != nil {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: failed to transcribe %s: %v", filePath, err))
@@ -112,7 +129,7 @@ func generateTranscripts(ctx context.Context, q *jobqueue.Queue, jobID string, f
 			continue
 		}
 		processed++
-		q.PushJobStdout(jobID, fmt.Sprintf("Transcript progress: %d video files processed", processed))
+		q.PushJobStdout(jobID, fmt.Sprintf("Transcript %d/%d: %s", i+1, len(candidates), filepath.Base(filePath)))
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Generated transcripts for %d video files", processed))
 	return nil
@@ -121,13 +138,9 @@ func generateTranscripts(ctx context.Context, q *jobqueue.Queue, jobID string, f
 // generateHashes generates hashes for media files
 func generateHashes(ctx context.Context, q *jobqueue.Queue, jobID string, filePaths []string, overwrite bool) error {
 	const maxBytes = 3 * 1024 * 1024
-	processed := 0
+	// Pre-filter to compute exact candidates and total for progress
+	var candidates []string
 	for _, filePath := range filePaths {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: file does not exist: %s", filePath))
 			continue
@@ -141,6 +154,21 @@ func generateHashes(ctx context.Context, q *jobqueue.Queue, jobID string, filePa
 			if hasHash {
 				continue
 			}
+		}
+		candidates = append(candidates, filePath)
+	}
+	if len(candidates) == 0 {
+		q.PushJobStdout(jobID, "Hash: 0 files to process")
+		return nil
+	}
+	q.PushJobStdout(jobID, fmt.Sprintf("Hash: %d files to process", len(candidates)))
+
+	processed := 0
+	for i, filePath := range candidates {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		fi, err := os.Stat(filePath)
 		if err != nil {
@@ -165,9 +193,7 @@ func generateHashes(ctx context.Context, q *jobqueue.Queue, jobID string, filePa
 			continue
 		}
 		processed++
-		if processed%50 == 0 || processed == len(filePaths) {
-			q.PushJobStdout(jobID, fmt.Sprintf("Hash progress: %d/%d files processed", processed, len(filePaths)))
-		}
+		q.PushJobStdout(jobID, fmt.Sprintf("Hash %d/%d: %s", i+1, len(candidates), filepath.Base(filePath)))
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Generated hashes for %d files", processed))
 	return nil
@@ -175,13 +201,9 @@ func generateHashes(ctx context.Context, q *jobqueue.Queue, jobID string, filePa
 
 // generateDimensions generates width/height dimensions for media files
 func generateDimensions(ctx context.Context, q *jobqueue.Queue, jobID string, filePaths []string, overwrite bool) error {
-	processed := 0
+	// Pre-filter to compute exact candidates and total for progress
+	var candidates []string
 	for _, filePath := range filePaths {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			q.PushJobStdout(jobID, fmt.Sprintf("Warning: file does not exist: %s", filePath))
 			continue
@@ -195,6 +217,25 @@ func generateDimensions(ctx context.Context, q *jobqueue.Queue, jobID string, fi
 			if hasDimensions {
 				continue
 			}
+		}
+		ext := strings.ToLower(filepath.Ext(filePath))
+		switch ext {
+		case ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic", ".mp4", ".mov", ".avi", ".mkv", ".webm":
+			candidates = append(candidates, filePath)
+		}
+	}
+	if len(candidates) == 0 {
+		q.PushJobStdout(jobID, "Dimensions: 0 files to process")
+		return nil
+	}
+	q.PushJobStdout(jobID, fmt.Sprintf("Dimensions: %d files to process", len(candidates)))
+
+	processed := 0
+	for i, filePath := range candidates {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		ext := strings.ToLower(filepath.Ext(filePath))
 		var width, height int
@@ -217,9 +258,7 @@ func generateDimensions(ctx context.Context, q *jobqueue.Queue, jobID string, fi
 			continue
 		}
 		processed++
-		if processed%50 == 0 || processed == len(filePaths) {
-			q.PushJobStdout(jobID, fmt.Sprintf("Dimensions progress: %d/%d files processed", processed, len(filePaths)))
-		}
+		q.PushJobStdout(jobID, fmt.Sprintf("Dimensions %d/%d: %s", i+1, len(candidates), filepath.Base(filePath)))
 	}
 	q.PushJobStdout(jobID, fmt.Sprintf("Generated dimensions for %d files", processed))
 	return nil
@@ -360,7 +399,7 @@ func generateTranscriptWithFasterWhisper(ctx context.Context, filePath string) (
 	if strings.TrimSpace(exePath) == "" {
 		exePath = "faster-whisper-xxl.exe"
 	}
-	cmd := exec.CommandContext(ctx, exePath, "--beep_off", "--output_format=vtt", "--output_dir=source", filePath)
+	cmd := exec.CommandContext(ctx, exePath, "--beep_off", "--output_format=vtt", "--output_dir=source", "--model", "large-v2", filePath)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("faster-whisper-xxl failed: %w", err)
 	}

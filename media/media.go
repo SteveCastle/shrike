@@ -975,9 +975,13 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 	const removeBatchSize = 500 // Remove in smaller batches to avoid SQL limits
 
 	result := &RemovalResult{}
-	offset := 0
 	totalFound := 0
 	totalRemoved := 0
+
+	// Use cursor-based pagination to avoid skipping items when deletions occur.
+	// Using OFFSET-based pagination with deletions would skip items because
+	// deleting N items shifts all subsequent items up by N positions.
+	var lastPath string
 
 	for {
 		// Check if context was cancelled
@@ -987,9 +991,17 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 		default:
 		}
 
-		// Get a batch of media items
-		query := `SELECT path FROM media ORDER BY path LIMIT ? OFFSET ?`
-		rows, err := db.QueryContext(ctx, query, batchSize, offset)
+		// Get a batch of media items using cursor-based pagination
+		// This ensures we don't skip items when deletions occur
+		var rows *sql.Rows
+		var err error
+		if lastPath == "" {
+			query := `SELECT path FROM media ORDER BY path LIMIT ?`
+			rows, err = db.QueryContext(ctx, query, batchSize)
+		} else {
+			query := `SELECT path FROM media WHERE path > ? ORDER BY path LIMIT ?`
+			rows, err = db.QueryContext(ctx, query, lastPath, batchSize)
+		}
 		if err != nil {
 			return result, fmt.Errorf("failed to query media items: %w", err)
 		}
@@ -1003,12 +1015,20 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 			}
 			batchPaths = append(batchPaths, path)
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return result, fmt.Errorf("error iterating media rows: %w", err)
+		}
 		rows.Close()
 
 		// If no more items, we're done
 		if len(batchPaths) == 0 {
 			break
 		}
+
+		// Track the last path for cursor-based pagination
+		// We need to remember the last path BEFORE any deletions
+		lastPath = batchPaths[len(batchPaths)-1]
 
 		// Check file existence for this batch
 		existenceMap := CheckFilesExistConcurrent(batchPaths)
@@ -1055,9 +1075,6 @@ func StreamingCleanupNonExistentItems(ctx context.Context, db *sql.DB, progressC
 				}
 			}
 		}
-
-		// Move to next batch
-		offset += batchSize
 
 		// If we got fewer items than batch size, we've reached the end
 		if len(batchPaths) < batchSize {
