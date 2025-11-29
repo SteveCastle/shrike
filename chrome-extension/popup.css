@@ -293,6 +293,16 @@ label {
   margin-bottom: 0;
 }
 
+.jobs-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-danger:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
 .jobs-list {
   flex: 1;
   overflow-y: auto;
@@ -357,6 +367,14 @@ label {
 .job-details {
   flex: 1;
   min-width: 0;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background var(--transition);
+}
+
+.job-details:hover {
+  background: var(--bg-hover);
 }
 
 .job-command {
@@ -405,6 +423,11 @@ label {
 .job-actions button.cancel:hover {
   color: var(--error);
   border-color: var(--error);
+}
+
+.job-actions button.remove:hover {
+  color: var(--text-muted);
+  border-color: var(--text-muted);
 }
 
 /* Footer */

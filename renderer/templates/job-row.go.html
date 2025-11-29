@@ -8,27 +8,17 @@
   </div>
   <div class="jobs-cell arguments" data-label="Arguments">{{ .Arguments }}</div>
   <div class="jobs-cell input" data-label="Input">{{ .Input }}</div>
-  <div class="jobs-cell created" data-label="CreatedAt">
+  <div class="jobs-cell created" data-label="Created">
     {{ formatTime .CreatedAt }}
   </div>
   <div class="jobs-cell actions" data-label="Actions">
     {{ if or (eq .State 0) (eq .State 1) }}
-    <button
-      data-id="{{ .ID }}"
-      class="cancel-button"
-      onClick="cancelJob(event)"
-    >
+    <button data-id="{{ .ID }}" class="btn--danger" onclick="cancelJob(event)">
       Cancel
     </button>
     {{ else }}
-    <button data-id="{{ .ID }}" class="cancel-button" onClick="restart(event)">
-      Restart
-    </button>
-    <button
-      data-id="{{ .ID }}"
-      class="remove-button"
-      onClick="removeJob(event)"
-    >
+    <button data-id="{{ .ID }}" onclick="restart(event)">Restart</button>
+    <button data-id="{{ .ID }}" class="btn--danger" onclick="removeJob(event)">
       Remove
     </button>
     {{ end }}

@@ -1,16 +1,19 @@
 {{ define "topnav" }}
-<nav
-  style="
-    margin: 10px 0;
-    padding: 10px;
-    background-color: #333;
-    border-radius: 4px;
-  "
->
-  <a href="/" style="margin-right: 20px; color: #61dafb">Home</a>
-  <a href="/jobs" style="margin-right: 20px; color: #61dafb">Jobs</a>
-  <a href="/media" style="margin-right: 20px; color: #61dafb">Media Browser</a>
-  <a href="/stats" style="margin-right: 20px; color: #61dafb">Stats</a>
-  <a href="/config" style="color: #61dafb">Config</a>
+<nav class="nav">
+  <a href="/" class="nav-link">
+    <span>Home</span>
+  </a>
+  <a href="/jobs" class="nav-link">
+    <span>Jobs</span>
+  </a>
+  <a href="/media" class="nav-link">
+    <span>Media Browser</span>
+  </a>
+  <a href="/stats" class="nav-link">
+    <span>Stats</span>
+  </a>
+  <a href="/config" class="nav-link">
+    <span>Config</span>
+  </a>
 </nav>
 {{ end }}

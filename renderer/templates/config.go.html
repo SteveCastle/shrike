@@ -7,192 +7,204 @@
     <title>Shrike Configuration</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
-      .container {
-        max-width: 900px;
-        margin: 0 auto;
-        padding: 20px;
-      }
-      h1 {
-        margin-bottom: 10px;
-      }
-      nav {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 10px;
-      }
-      .sections {
+      .config-sections {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: var(--space-4);
       }
-      .card {
-        background-color: #2d2d2d;
-        border-radius: 6px;
-        padding: 16px 16px 14px 16px;
-        margin-bottom: 16px;
+
+      .config-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-5);
+        border-left: 3px solid var(--accent-primary);
       }
-      .card .section-title {
+
+      .config-card--blue {
+        border-left-color: var(--accent-blue);
+      }
+
+      .config-card--purple {
+        border-left-color: var(--accent-purple);
+      }
+
+      .config-card--cyan {
+        border-left-color: var(--accent-cyan);
+      }
+
+      .config-card--pink {
+        border-left-color: var(--accent-pink);
+      }
+
+      .section-title {
         display: flex;
         align-items: center;
-        gap: 10px;
-        font-weight: bold;
-        color: #ffffff;
-        margin-bottom: 8px;
+        gap: var(--space-3);
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-3);
+        font-size: var(--text-base);
       }
-      .card .section-subtitle {
-        color: #aaaaaa;
-        font-size: 0.9em;
-        margin-top: -6px;
-        margin-bottom: 10px;
+
+      .section-subtitle {
+        color: var(--text-muted);
+        font-size: var(--text-sm);
+        margin-top: calc(var(--space-1) * -1);
+        margin-bottom: var(--space-4);
       }
+
       .fields {
         display: grid;
         grid-template-columns: 1fr;
-        gap: 10px;
+        gap: var(--space-4);
       }
+
       .field {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--space-2);
       }
+
       .field-inline {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
-      .hint {
-        color: #9aa0a6;
-        font-size: 0.85em;
+
+      .field-row {
+        display: flex;
+        gap: var(--space-4);
       }
-      .mono {
-        font-family: monospace;
-        color: #e5e5e5;
-        word-break: break-all;
+
+      .field-row > div {
+        flex: 1;
       }
-      /* Accents for visually distinct sections */
-      .accent-blue {
-        border-left: 4px solid #3b82f6;
-        box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.12);
-      }
-      .accent-purple {
-        border-left: 4px solid #a78bfa;
-        box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.12);
-      }
-      .accent-teal {
-        border-left: 4px solid #2dd4bf;
-        box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.12);
-      }
-      .accent-pink {
-        border-left: 4px solid #f472b6;
-        box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.12);
-      }
-      .label {
-        color: #aaa;
-        font-size: 0.9em;
-        margin-bottom: 6px;
-        display: block;
-      }
-      .label {
-        text-transform: none;
-        letter-spacing: 0.02em;
-      }
+
       .value {
-        color: #eee;
-        font-family: monospace;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
         word-break: break-all;
+        font-size: var(--text-sm);
+        background: var(--bg-surface);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
       }
+
       .input {
         width: 100%;
-        padding: 8px 12px;
+        padding: var(--space-3);
         box-sizing: border-box;
-        background-color: #1e1e1e;
-        border: 1px solid #555;
-        color: #d4d4d4;
-        border-radius: 4px;
-        font-family: monospace;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-default);
+        color: var(--text-primary);
+        border-radius: var(--radius-md);
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        transition: border-color var(--transition-fast),
+          box-shadow var(--transition-fast);
       }
+
       .input:focus {
         outline: none;
-        border-color: #61dafb;
-        box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.15);
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px var(--accent-primary-dim);
       }
+
       textarea.input {
         resize: vertical;
         max-width: 100%;
-        min-height: 96px;
+        min-height: 100px;
+        line-height: 1.5;
       }
-      .row {
-        display: flex;
-        gap: 12px;
-        align-items: center;
+
+      select.input {
+        cursor: pointer;
       }
+
       .actions {
         display: flex;
-        gap: 10px;
-        margin-top: 12px;
+        gap: var(--space-3);
+        margin-top: var(--space-4);
         flex-wrap: wrap;
       }
+
       .btn {
-        padding: 8px 16px;
-        border-radius: 4px;
+        padding: var(--space-3) var(--space-5);
+        border-radius: var(--radius-md);
         cursor: pointer;
         border: none;
-        font-weight: bold;
+        font-weight: 600;
+        font-size: var(--text-sm);
+        transition: all var(--transition-fast);
       }
+
       .btn-primary {
-        background-color: #61dafb;
+        background: var(--accent-primary);
         color: #000;
       }
+
+      .btn-primary:hover {
+        background: #00e6b8;
+        box-shadow: var(--shadow-glow);
+      }
+
       .btn-secondary {
-        background-color: #666;
-        color: #fff;
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        border: 1px solid var(--border-default);
       }
+
+      .btn-secondary:hover {
+        background: var(--bg-active);
+        border-color: var(--border-strong);
+      }
+
       .status {
-        font-size: 0.9em;
-        color: #aaa;
-        margin-top: 8px;
+        font-size: var(--text-sm);
+        color: var(--text-secondary);
+        margin-top: var(--space-3);
       }
-      nav a {
-        color: #61dafb;
-        margin-right: 20px;
+
+      .status.success {
+        color: var(--status-success);
+      }
+
+      .status.error {
+        color: var(--status-error);
       }
 
       @media screen and (max-width: 800px) {
-        .container {
-          padding: 12px;
+        .field-row {
+          flex-direction: column;
+          gap: var(--space-3);
         }
-        h1 {
-          font-size: 1.4em;
-        }
-        .btn {
-          font-size: 0.95em;
-        }
+
         .actions .btn {
           flex: 1 1 auto;
-          min-width: 140px;
+          min-width: 120px;
         }
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>Configuration</h1>
+    <div class="container container--narrow">
+      <h1 class="page-title">Configuration</h1>
       {{ template "topnav" . }}
 
-      <div class="card">
+      <div class="config-card" style="margin-bottom: var(--space-4)">
         <div class="label">Config file path</div>
         <div class="value">{{.ConfigPath}}</div>
       </div>
 
-      <div class="sections">
-        <div class="card accent-blue">
+      <div class="config-sections">
+        <div class="config-card config-card--blue">
           <div class="section-title">⚙️ General</div>
           <div class="fields">
             <div class="field">
-              <div class="label">Database path</div>
+              <label class="label">Database path</label>
               <input
                 id="db-path"
                 class="input"
@@ -200,18 +212,23 @@
                 value="{{.Config.DBPath}}"
               />
               <div class="field-inline">
-                <div class="hint">Active</div>
-                <div class="mono" id="active-db-path">{{.ActiveDBPath}}</div>
+                <span class="hint">Active:</span>
+                <code
+                  class="value"
+                  id="active-db-path"
+                  style="padding: var(--space-1) var(--space-2)"
+                  >{{.ActiveDBPath}}</code
+                >
               </div>
             </div>
           </div>
         </div>
 
-        <div class="card accent-purple">
+        <div class="config-card config-card--purple">
           <div class="section-title">🧠 Ollama</div>
           <div class="fields">
             <div class="field">
-              <div class="label">Base URL</div>
+              <label class="label">Base URL</label>
               <input
                 id="ollama-base-url"
                 class="input"
@@ -220,7 +237,7 @@
               />
             </div>
             <div class="field">
-              <div class="label">Model</div>
+              <label class="label">Model</label>
               <select id="ollama-model" class="input">
                 <option value="{{.Config.OllamaModel}}">
                   {{.Config.OllamaModel}}
@@ -228,13 +245,13 @@
               </select>
             </div>
             <div class="field">
-              <div class="label">Describe prompt</div>
+              <label class="label">Describe prompt</label>
               <textarea id="describe-prompt" class="input" rows="4">
 {{.Config.DescribePrompt}}</textarea
               >
             </div>
             <div class="field">
-              <div class="label">Autotag prompt</div>
+              <label class="label">Autotag prompt</label>
               <textarea id="autotag-prompt" class="input" rows="6">
 {{.Config.AutotagPrompt}}</textarea
               >
@@ -242,11 +259,11 @@
           </div>
         </div>
 
-        <div class="card accent-teal">
+        <div class="config-card config-card--cyan">
           <div class="section-title">🧩 ONNX Tagger</div>
           <div class="fields">
             <div class="field">
-              <div class="label">Model path</div>
+              <label class="label">Model path</label>
               <input
                 id="onnx-model-path"
                 class="input"
@@ -255,7 +272,7 @@
               />
             </div>
             <div class="field">
-              <div class="label">Labels path</div>
+              <label class="label">Labels path</label>
               <input
                 id="onnx-labels-path"
                 class="input"
@@ -264,7 +281,7 @@
               />
             </div>
             <div class="field">
-              <div class="label">Config path</div>
+              <label class="label">Config path</label>
               <input
                 id="onnx-config-path"
                 class="input"
@@ -273,7 +290,7 @@
               />
             </div>
             <div class="field">
-              <div class="label">ORT shared library path</div>
+              <label class="label">ORT shared library path</label>
               <input
                 id="onnx-ort-path"
                 class="input"
@@ -281,9 +298,9 @@
                 value="{{.Config.OnnxTagger.ORTSharedLibraryPath}}"
               />
             </div>
-            <div class="row" style="gap: 12px; margin-top: 2px">
-              <div style="flex: 1">
-                <div class="label">General threshold</div>
+            <div class="field-row">
+              <div class="field">
+                <label class="label">General threshold</label>
                 <input
                   id="onnx-general-thresh"
                   class="input"
@@ -292,8 +309,8 @@
                   value="{{.Config.OnnxTagger.GeneralThreshold}}"
                 />
               </div>
-              <div style="flex: 1">
-                <div class="label">Character threshold</div>
+              <div class="field">
+                <label class="label">Character threshold</label>
                 <input
                   id="onnx-char-thresh"
                   class="input"
@@ -306,11 +323,11 @@
           </div>
         </div>
 
-        <div class="card accent-pink">
+        <div class="config-card config-card--pink">
           <div class="section-title">🎙️ Whisper</div>
           <div class="fields">
             <div class="field">
-              <div class="label">Faster-Whisper executable</div>
+              <label class="label">Faster-Whisper executable</label>
               <input
                 id="faster-whisper-path"
                 class="input"
@@ -321,7 +338,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="config-card">
           <div class="actions">
             <button class="btn btn-primary" id="save-btn">Save</button>
             <button class="btn btn-secondary" id="reload-btn">
@@ -336,15 +353,12 @@
     <script>
       const statusEl = document.getElementById("status");
       const activeDbPathEl = document.getElementById("active-db-path");
+
       function setStatus(msg, kind = "info") {
         statusEl.textContent = msg;
-        statusEl.style.color =
-          kind === "error"
-            ? "#e06c75"
-            : kind === "success"
-            ? "#98c379"
-            : "#aaa";
+        statusEl.className = "status " + kind;
       }
+
       document.getElementById("save-btn").addEventListener("click", () => {
         const dbPath = document.getElementById("db-path").value.trim();
         if (!dbPath) {
@@ -401,6 +415,7 @@
           })
           .catch((err) => setStatus("Error: " + err, "error"));
       });
+
       document.getElementById("reload-btn").addEventListener("click", () => {
         setStatus("Reloading...");
         fetch("/config")
@@ -419,9 +434,7 @@
           .then((r) => r.json())
           .then((data) => {
             const models = Array.isArray(data.models) ? data.models : [];
-            // Clear and rebuild options; preserve current selection if present
             select.innerHTML = "";
-            // If no models returned, keep current as a free-text fallback option
             if (models.length === 0 && current) {
               const opt = document.createElement("option");
               opt.value = current;
@@ -429,22 +442,18 @@
               select.appendChild(opt);
               return;
             }
-            // Add a placeholder option
             const placeholder = document.createElement("option");
             placeholder.value = "";
             placeholder.textContent = "Select a model";
             select.appendChild(placeholder);
-            // Add returned models
             for (const m of models) {
               const opt = document.createElement("option");
               opt.value = m;
               opt.textContent = m;
               select.appendChild(opt);
             }
-            // Reselect current if present, otherwise keep placeholder
             if (current) {
               select.value = current;
-              // If current not in list, add it to the top
               if (select.value !== current) {
                 const opt = document.createElement("option");
                 opt.value = current;
@@ -454,9 +463,7 @@
               }
             }
           })
-          .catch(() => {
-            // If the endpoint fails (e.g., ollama not installed), leave current value as-is
-          });
+          .catch(() => {});
       })();
     </script>
   </body>

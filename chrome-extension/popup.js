@@ -16,6 +16,7 @@ const elements = {
   feedback: null,
   jobsList: null,
   refreshBtn: null,
+  clearAllBtn: null,
 };
 
 // Initialize on DOM load
@@ -31,6 +32,7 @@ async function init() {
   elements.feedback = document.getElementById("feedback");
   elements.jobsList = document.getElementById("jobsList");
   elements.refreshBtn = document.getElementById("refreshBtn");
+  elements.clearAllBtn = document.getElementById("clearAllBtn");
 
   // Load saved preferences
   loadPreferences();
@@ -41,6 +43,7 @@ async function init() {
   // Set up event listeners
   elements.createBtn.addEventListener("click", createTask);
   elements.refreshBtn.addEventListener("click", refreshJobs);
+  elements.clearAllBtn.addEventListener("click", clearAllJobs);
   elements.command.addEventListener("change", savePreferences);
   elements.args.addEventListener("input", debounce(savePreferences, 500));
 
@@ -141,15 +144,34 @@ async function createTask() {
 // Fetch current jobs
 async function fetchJobs() {
   try {
-    const response = await fetch(`${API_BASE}/health`);
-    if (!response.ok) throw new Error("Failed to fetch health");
+    const response = await fetch(`${API_BASE}/jobs/list`);
+    if (!response.ok) throw new Error("Failed to fetch jobs");
 
-    const health = await response.json();
+    const fetchedJobs = await response.json();
     updateServerStatus(true);
 
-    // Health endpoint gives us counts, but we need full job list
-    // We'll rely on SSE for real-time updates, but fetch initial state
-    // by parsing the jobs page or using a dedicated API if available
+    // Update jobs array with fetched jobs
+    if (Array.isArray(fetchedJobs)) {
+      // Merge with existing jobs, preferring fetched data
+      fetchedJobs.forEach((job) => {
+        const existingIndex = jobs.findIndex((j) => j.id === job.id);
+        if (existingIndex >= 0) {
+          jobs[existingIndex] = job;
+        } else {
+          jobs.push(job);
+        }
+      });
+
+      // Sort by created_at descending (newest first)
+      jobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      // Keep only last 20 jobs
+      if (jobs.length > 20) {
+        jobs = jobs.slice(0, 20);
+      }
+
+      renderJobs();
+    }
   } catch (err) {
     console.error("Fetch jobs error:", err);
     updateServerStatus(false);
@@ -165,6 +187,27 @@ function refreshJobs() {
   jobs = [];
   renderJobs();
   connectSSE();
+  fetchJobs();
+}
+
+// Clear all non-running jobs
+async function clearAllJobs() {
+  try {
+    const response = await fetch(`${API_BASE}/jobs/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to clear jobs");
+    }
+
+    // Refresh the jobs list
+    fetchJobs();
+  } catch (err) {
+    console.error("Clear all jobs error:", err);
+    showFeedback("Failed to clear jobs", "error");
+  }
 }
 
 // SSE Connection
@@ -288,11 +331,14 @@ function renderJobs() {
       const statusClass = getStatusClass(job.state);
       const timeAgo = formatTimeAgo(job.created_at);
       const truncatedInput = truncate(job.input || "", 50);
+      const isActive = job.state === 0 || job.state === 1;
 
       return `
       <div class="job-item" data-id="${job.id}">
         <div class="job-status ${statusClass}"></div>
-        <div class="job-details">
+        <div class="job-details" onclick="openJobDetail('${
+          job.id
+        }')" style="cursor: pointer;" title="Open in web UI">
           <div class="job-command">${escapeHtml(job.command || "Unknown")}</div>
           <div class="job-input" title="${escapeHtml(
             job.input || ""
@@ -301,11 +347,9 @@ function renderJobs() {
         </div>
         <div class="job-actions">
           ${
-            job.state === 0 || job.state === 1
-              ? `
-            <button class="cancel" onclick="cancelJob('${job.id}')" title="Cancel">✕</button>
-          `
-              : ""
+            isActive
+              ? `<button class="job-action-btn cancel" onclick="cancelJob('${job.id}')" title="Cancel">✕</button>`
+              : `<button class="job-action-btn remove" onclick="removeJobFromServer('${job.id}')" title="Remove">✕</button>`
           }
         </div>
       </div>
@@ -331,8 +375,35 @@ async function cancelJob(jobId) {
   }
 }
 
-// Make cancelJob available globally for onclick
+// Remove a job from the server
+async function removeJobFromServer(jobId) {
+  try {
+    const response = await fetch(`${API_BASE}/job/${jobId}/remove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to remove job");
+    }
+
+    // Remove from local list
+    removeJob(jobId);
+  } catch (err) {
+    console.error("Remove job error:", err);
+    showFeedback("Failed to remove job", "error");
+  }
+}
+
+// Open job detail in web UI
+function openJobDetail(jobId) {
+  chrome.tabs.create({ url: `${API_BASE}/job/${jobId}` });
+}
+
+// Make functions available globally for onclick
 window.cancelJob = cancelJob;
+window.removeJobFromServer = removeJobFromServer;
+window.openJobDetail = openJobDetail;
 
 // UI Helpers
 function updateServerStatus(connected) {

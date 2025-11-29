@@ -7,136 +7,200 @@
     <title>Shrike Jobs</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
-      .jobs-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 20px;
-      }
-      nav {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 10px;
-      }
       .jobs-table {
         width: 100%;
-        border-collapse: collapse;
-        font-family: monospace;
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        margin: 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        margin-top: var(--space-4);
       }
+
+      .jobs-header-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--space-4);
+        background: var(--bg-elevated);
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .jobs-header-section h2 {
+        margin: 0;
+        font-size: var(--text-base);
+        color: var(--text-primary);
+      }
+
       .jobs-header,
       .jobs-row {
         display: grid;
-        grid-template-columns: 60px 2fr 2fr 3fr 2fr 1.5fr;
-        gap: 8px;
-        border-bottom: 1px solid #333;
+        grid-template-columns: 50px 2fr 2fr 3fr 2fr 1.5fr;
+        gap: var(--space-2);
+        border-bottom: 1px solid var(--border-subtle);
       }
+
       .jobs-header {
-        font-weight: bold;
-        background-color: #333;
-        color: #ffffff;
+        font-weight: 600;
+        background: var(--bg-surface);
+        color: var(--text-secondary);
+        font-size: var(--text-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
         position: sticky;
         top: 0;
         z-index: 10;
       }
+
+      .jobs-row:last-child {
+        border-bottom: none;
+      }
+
+      .jobs-row {
+        overflow: hidden;
+      }
+
+      .jobs-row:hover {
+        background: var(--bg-hover);
+      }
+
       .jobs-cell {
         position: relative;
-        padding: 10px;
+        padding: var(--space-3);
         text-align: left;
-        box-sizing: border-box;
-        color: #d4d4d4;
+        color: var(--text-secondary);
         white-space: nowrap;
         display: flex;
         align-items: center;
         overflow: hidden;
+        font-size: var(--text-sm);
       }
+
       .jobs-cell.state {
         justify-content: center;
       }
+
       .jobs-cell.command {
-        font-family: monospace;
-        color: #61dafb;
+        font-family: var(--font-mono);
+        color: var(--accent-primary);
         white-space: normal;
         word-break: break-all;
       }
+
+      .jobs-cell.command a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .jobs-cell.command a:hover {
+        color: var(--text-primary);
+      }
+
       .jobs-cell.arguments {
-        color: #98c379;
+        color: var(--accent-purple);
         white-space: normal;
         word-break: break-word;
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
       }
+
       .jobs-cell.input {
-        color: #e5c07b;
+        color: var(--status-pending);
         white-space: normal;
         word-break: break-word;
         max-height: 140px;
         overflow-y: auto;
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
       }
-      #uri {
-        width: 100%;
-        padding: 10px 12px;
-        box-sizing: border-box;
-        border-radius: 4px;
-        border: 1px solid #333;
-        background-color: #111;
-        color: #d4d4d4;
-        font-family: monospace;
-        font-size: 16px;
-      }
+
       .jobs-cell.created {
-        color: #d4d4d4;
-        font-size: 0.9em;
+        color: var(--text-muted);
+        font-size: var(--text-xs);
       }
+
       .jobs-cell.actions {
         justify-content: center;
-        gap: 5px;
+        gap: var(--space-2);
         flex-wrap: wrap;
         white-space: normal;
       }
+
+      .jobs-cell.actions button {
+        font-size: var(--text-xs);
+        padding: var(--space-1) var(--space-3);
+      }
+
+      #uri {
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        box-sizing: border-box;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-default);
+        background: var(--bg-surface);
+        color: var(--accent-primary);
+        font-family: var(--font-mono);
+        font-size: var(--text-base);
+      }
+
+      #uri:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px var(--accent-primary-dim);
+      }
+
+      #createForm {
+        margin: var(--space-4) 0;
+      }
+
       @media screen and (max-width: 800px) {
-        .jobs-container {
-          padding: 12px;
-        }
-        nav {
-          gap: 8px;
-        }
-        h1 {
-          font-size: 1.4em;
-        }
         .jobs-header,
         .jobs-row {
           grid-template-columns: 1fr;
           gap: 0;
         }
-        .jobs-cell {
-          padding: 5px 10px;
-          border-bottom: 1px dotted #444;
+
+        .jobs-row {
+          background: var(--bg-card);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-lg);
+          margin: var(--space-3) var(--space-3);
         }
+
+        .jobs-cell {
+          padding: var(--space-2) var(--space-3);
+          border-bottom: 1px dotted var(--border-subtle);
+        }
+
         .jobs-cell:before {
           content: attr(data-label) ": ";
-          font-weight: bold;
-          color: #aaa;
-          margin-right: 10px;
+          font-weight: 600;
+          color: var(--text-muted);
+          margin-right: var(--space-2);
+          text-transform: uppercase;
+          font-size: var(--text-xs);
         }
+
         .jobs-header {
           display: none;
         }
+
         .jobs-cell.actions {
           justify-content: stretch;
-          gap: 8px;
+          gap: var(--space-2);
         }
+
         .jobs-cell.actions button {
           flex: 1 1 auto;
-          min-width: 120px;
+          min-width: 100px;
         }
       }
     </style>
   </head>
   <body>
-    <div class="jobs-container">
-      <h1>Jobs</h1>
+    <div class="container">
+      <h1 class="page-title">Jobs</h1>
       {{ template "topnav" . }}
+
       <form id="createForm">
         <input
           type="text"
@@ -148,33 +212,12 @@
       </form>
 
       <div class="jobs-table">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          "
-        >
-          <h2 style="margin: 0; color: #d4d4d4; font-size: 1.2em">
-            Current Jobs
-          </h2>
+        <div class="jobs-header-section">
+          <h2>Current Jobs</h2>
           <button
             id="clearNonRunningBtn"
-            onClick="clearNonRunningJobs()"
-            style="
-              background: transparent;
-              border: 1px solid #666;
-              color: #d4d4d4;
-              font-family: inherit;
-              font-size: 0.85em;
-              padding: 0.4em 0.8em;
-              cursor: pointer;
-              border-radius: 3px;
-              transition: all 0.2s ease;
-            "
-            onmouseover="this.style.borderColor='#999'; this.style.color='#fff'"
-            onmouseout="this.style.borderColor='#666'; this.style.color='#d4d4d4'"
+            class="btn--ghost"
+            onclick="clearNonRunningJobs()"
           >
             Clear All
           </button>
@@ -184,7 +227,7 @@
           <div class="jobs-cell">Command</div>
           <div class="jobs-cell">Arguments</div>
           <div class="jobs-cell">Input</div>
-          <div class="jobs-cell">CreatedAt</div>
+          <div class="jobs-cell">Created</div>
           <div class="jobs-cell">Actions</div>
         </div>
         <div id="jobs" class="table-body">
@@ -423,6 +466,7 @@
           })
           .catch((err) => console.error("Error:", err));
       }
+
       function restart(e) {
         e.preventDefault();
         const id = e.target.getAttribute("data-id");
@@ -436,6 +480,7 @@
           })
           .catch((err) => console.error("Error:", err));
       }
+
       function removeJob(e) {
         e.preventDefault();
         const id = e.target.getAttribute("data-id");
@@ -449,6 +494,7 @@
           })
           .catch((err) => console.error("Error:", err));
       }
+
       function clearNonRunningJobs() {
         if (
           !confirm(
@@ -477,16 +523,14 @@
             button.textContent = "Clear All";
           });
       }
+
       function htmlToNode(html) {
         const template = document.createElement("template");
         template.innerHTML = html.trim();
         const nNodes = template.content.childNodes.length;
         if (nNodes !== 1) {
           throw new Error(
-            `html parameter must represent a single node; got ${nNodes}. ` +
-              "Note that leading or trailing spaces around an element in your " +
-              'HTML, like " <img/> ", get parsed as text nodes neighbouring ' +
-              "the element; call .trim() on your input to avoid this."
+            `html parameter must represent a single node; got ${nNodes}.`
           );
         }
         return template.content.firstChild;
