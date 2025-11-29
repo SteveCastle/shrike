@@ -3640,6 +3640,8 @@
           // valuePrefix chars after key: and optional opening quote, and absolute start for replacement
           let valuePrefix = "";
           let valueStartAbs = end;
+          let hasOpeningQuote = false;
+          let hasClosingQuote = false;
           if (stage === "value") {
             // find colon absolute index between start..end outside quotes
             let q = false;
@@ -3656,9 +3658,20 @@
               valueStartAbs = colonAbs + 1;
               while (valueStartAbs < end && value[valueStartAbs] === " ")
                 valueStartAbs++;
-              if (valueStartAbs < end && value[valueStartAbs] === '"')
-                valueStartAbs++;
-              valuePrefix = value.slice(valueStartAbs, caret);
+              // Check for opening quote and include it in replacement range
+              if (valueStartAbs < end && value[valueStartAbs] === '"') {
+                hasOpeningQuote = true;
+                // Don't skip past it - we'll replace it too
+              }
+              // Check for closing quote at end
+              if (end > valueStartAbs && value[end - 1] === '"') {
+                hasClosingQuote = true;
+              }
+              // Calculate valuePrefix (skip opening quote if present for prefix calculation)
+              const prefixStart = hasOpeningQuote
+                ? valueStartAbs + 1
+                : valueStartAbs;
+              valuePrefix = value.slice(prefixStart, caret);
             }
           }
           return {
@@ -3671,6 +3684,8 @@
             negate,
             valuePrefix,
             valueStartAbs,
+            hasOpeningQuote,
+            hasClosingQuote,
           };
         }
 
@@ -3851,8 +3866,22 @@
               info.key === "path" ||
               info.key === "pathdir" ||
               info.key === "category";
-            if (needsQuote) insertText = '"' + insertText + '"';
-            const replaceStart = info.valueStartAbs;
+
+            // Determine where to start replacing
+            // If there's an opening quote, preserve it by starting replacement after it
+            let replaceStart = info.valueStartAbs;
+            if (info.hasOpeningQuote) {
+              replaceStart = info.valueStartAbs + 1; // Start after the existing quote
+            }
+
+            // Build the replacement text
+            if (needsQuote) {
+              // Add opening quote only if there isn't one already
+              const openQuote = info.hasOpeningQuote ? "" : '"';
+              // Always add closing quote (we'll handle existing closing quote in replaceEnd)
+              insertText = openQuote + insertText + '"';
+            }
+
             const replaceEnd = info.end;
             const before = value.slice(0, replaceStart);
             const after = value.slice(replaceEnd);
