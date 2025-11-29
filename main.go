@@ -265,6 +265,21 @@ func jobsHandler(deps *Dependencies) http.HandlerFunc {
 		}
 	}
 }
+
+func jobsListHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+		jobs := deps.Queue.GetJobs()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(jobs); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
 func detailHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -1129,6 +1144,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", renderer.ApplyMiddlewares(homeHandler(deps)))
 	mux.HandleFunc("/jobs", renderer.ApplyMiddlewares(jobsHandler(deps)))
+	mux.HandleFunc("/jobs/list", renderer.ApplyMiddlewares(jobsListHandler(deps)))
 	mux.HandleFunc("/job/{id}", renderer.ApplyMiddlewares(detailHandler(deps)))
 	mux.HandleFunc("/job/{id}/cancel", renderer.ApplyMiddlewares(cancelHandler(deps)))
 	mux.HandleFunc("/job/{id}/copy", renderer.ApplyMiddlewares(copyHandler(deps)))

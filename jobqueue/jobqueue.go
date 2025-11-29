@@ -53,9 +53,9 @@ func (s JobState) String() string {
 
 // Job represents an individual task in the queue.
 type Job struct {
-	ID           string `json:"id"` // Unique identifier for the job
-	Command      string `json:"command"`
-	Arguments    []string
+	ID           string             `json:"id"` // Unique identifier for the job
+	Command      string             `json:"command"`
+	Arguments    []string           `json:"arguments"`
 	Input        string             `json:"input"`
 	Stdout       []string           `json:"-"`
 	StdoutRaw    io.Reader          `json:"-"` // Raw stdout stream

@@ -32,7 +32,7 @@
       .media-header,
       .media-row {
         display: grid;
-        grid-template-columns: 40px 3fr 2fr 80px 80px 100px 80px 1.5fr 140px 2fr;
+        grid-template-columns: 40px 3fr 2fr 80px 80px 100px 80px 1.5fr 2fr;
         gap: 8px;
         border-bottom: 1px solid #333;
         align-items: start;
@@ -150,13 +150,35 @@
         white-space: normal;
         word-break: break-word;
         align-items: flex-start;
-        overflow: visible;
-        padding-top: 8px;
-        padding-bottom: 8px;
+        align-content: flex-start;
+        padding: 8px 10px;
         max-width: 200px;
         min-width: 150px;
+        max-height: 80px;
+        overflow-y: auto;
+        overflow-x: hidden;
         display: flex;
         flex-wrap: wrap;
+        scrollbar-width: thin;
+        scrollbar-color: #555 #2d2d2d;
+      }
+
+      .media-cell.tags::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .media-cell.tags::-webkit-scrollbar-track {
+        background: #2d2d2d;
+        border-radius: 3px;
+      }
+
+      .media-cell.tags::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 3px;
+      }
+
+      .media-cell.tags::-webkit-scrollbar-thumb:hover {
+        background: #666;
       }
 
       .tag-item {
@@ -227,6 +249,279 @@
       .typeahead-item .hint {
         color: #888;
         font-size: 0.85em;
+      }
+      .typeahead-section {
+        padding: 6px 10px 4px;
+        font-size: 0.75em;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #61dafb;
+        background: #252525;
+        border-bottom: 1px solid #333;
+        user-select: none;
+      }
+      .typeahead-item.recent {
+        background: rgba(97, 218, 251, 0.05);
+      }
+      .typeahead-item.recent:hover,
+      .typeahead-item.recent.active {
+        background: rgba(97, 218, 251, 0.12);
+      }
+      .typeahead-item .remove-btn {
+        opacity: 0;
+        background: none;
+        border: none;
+        color: #888;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 6px;
+        margin-left: 8px;
+        border-radius: 3px;
+        transition: opacity 0.15s, color 0.15s, background 0.15s;
+      }
+      .typeahead-item:hover .remove-btn,
+      .typeahead-item.active .remove-btn {
+        opacity: 1;
+      }
+      .typeahead-item .remove-btn:hover {
+        color: #e06c75;
+        background: rgba(224, 108, 117, 0.15);
+      }
+      .typeahead-item .recent-icon {
+        color: #888;
+        margin-right: 8px;
+        font-size: 0.9em;
+      }
+      .typeahead-clear-all {
+        padding: 6px 10px;
+        font-size: 0.8em;
+        color: #888;
+        text-align: center;
+        cursor: pointer;
+        border-top: 1px solid #333;
+        transition: background 0.15s, color 0.15s;
+      }
+      .typeahead-clear-all:hover {
+        background: rgba(224, 108, 117, 0.1);
+        color: #e06c75;
+      }
+
+      /* Toast notification system */
+      .toast-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 10px;
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+        pointer-events: none;
+      }
+
+      .toast {
+        pointer-events: auto;
+        min-width: 320px;
+        max-width: 420px;
+        background: linear-gradient(135deg, #2d2d2d 0%, #1e1e1e 100%);
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+        transform: translateX(100%);
+        opacity: 0;
+        animation: toastSlideIn 0.3s ease forwards;
+        border: 1px solid #333;
+      }
+
+      .toast.exiting {
+        animation: toastSlideOut 0.3s ease forwards;
+      }
+
+      @keyframes toastSlideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes toastSlideOut {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+
+      .toast-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid #333;
+      }
+
+      .toast-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        color: #fff;
+        font-size: 0.95em;
+      }
+
+      .toast-status-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      }
+
+      .toast-status-icon.pending {
+        color: #888;
+      }
+
+      .toast-status-icon.running {
+        color: #61dafb;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .toast-status-icon.success {
+        color: #4ade80;
+      }
+
+      .toast-status-icon.error {
+        color: #f87171;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      .toast-close {
+        background: none;
+        border: none;
+        color: #666;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.15s, color 0.15s;
+        line-height: 1;
+      }
+
+      .toast-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+      }
+
+      .toast-body {
+        padding: 12px 14px;
+      }
+
+      .toast-message {
+        color: #aaa;
+        font-size: 0.85em;
+        line-height: 1.4;
+        margin-bottom: 10px;
+      }
+
+      .toast-progress-container {
+        background: #1a1a1a;
+        border-radius: 4px;
+        height: 4px;
+        overflow: hidden;
+        margin-bottom: 8px;
+      }
+
+      .toast-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #61dafb, #4fa8d8);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .toast-progress-bar.indeterminate {
+        width: 30%;
+        animation: indeterminate 1.5s ease-in-out infinite;
+      }
+
+      .toast-progress-bar.complete {
+        background: linear-gradient(90deg, #4ade80, #22c55e);
+        width: 100%;
+      }
+
+      .toast-progress-bar.error {
+        background: linear-gradient(90deg, #f87171, #ef4444);
+        width: 100%;
+      }
+
+      @keyframes indeterminate {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(400%);
+        }
+      }
+
+      .toast-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        background: rgba(0, 0, 0, 0.2);
+        border-top: 1px solid #333;
+      }
+
+      .toast-link {
+        color: #61dafb;
+        text-decoration: none;
+        font-size: 0.8em;
+        font-weight: 500;
+        transition: color 0.15s;
+      }
+
+      .toast-link:hover {
+        color: #8ae8ff;
+        text-decoration: underline;
+      }
+
+      .toast-time {
+        color: #666;
+        font-size: 0.75em;
+      }
+
+      /* Responsive */
+      @media screen and (max-width: 500px) {
+        .toast-container {
+          left: 10px;
+          right: 10px;
+          bottom: 10px;
+        }
+
+        .toast {
+          min-width: auto;
+          max-width: none;
+          width: 100%;
+        }
       }
 
       /* View toggle */
@@ -1057,7 +1352,6 @@
           <div class="media-cell">Size</div>
           <div class="media-cell">Exists</div>
           <div class="media-cell">Hash</div>
-          <div class="media-cell">Job</div>
           <div class="media-cell">Tags</div>
         </div>
         <div id="media-list" class="table-body">
@@ -1098,11 +1392,6 @@
             <div class="media-cell hash" data-label="Hash">
               {{if .Hash.Valid}}{{.Hash.String}}{{else}}-{{end}}
             </div>
-            <div
-              class="media-cell job"
-              data-label="Job"
-              data-media-path-job="{{htmlAttr .Path}}"
-            ></div>
             <div class="media-cell tags" data-label="Tags">
               {{if .Tags}} {{range .Tags}}
               <span class="tag-item">
@@ -1133,6 +1422,9 @@
         Hover to preview media
       </div>
     </div>
+
+    <!-- Toast notifications container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <!-- Lightbox for fullscreen media -->
     <div id="lightbox" class="lightbox" aria-hidden="true">
@@ -1469,9 +1761,8 @@
               throw new Error("Failed to create job");
             })
             .then((result) => {
-              // Show a non-blocking notification and link inline in the Job column
-              showNotification(`Job created: ${result.id}`, "success");
-              attachJobLinksToRows(Array.from(selectedItems), result.id);
+              // Create a toast for this job that will track its status
+              ToastManager.add(result.id, command);
               clearSelection();
             })
             .catch((error) => {
@@ -2069,9 +2360,15 @@
               onActivity();
               const jobUpdate = JSON.parse(event.data);
               const job = jobUpdate.job;
-              if (job && job.state === 2) {
-                // StateCompleted = 2
-                handleJobCompletion(job);
+              if (job) {
+                // Update toast with job status
+                ToastManager.update(job);
+
+                // Handle completion for media-affecting jobs
+                if (job.state === 2) {
+                  // StateCompleted = 2
+                  handleJobCompletion(job);
+                }
               }
             });
           } catch (e) {
@@ -2351,8 +2648,6 @@
         }
 
         console.log("Media-affecting job completed:", job);
-        // Update any Job column links pointing at this job
-        updateJobLinks(job);
 
         switch (job.command) {
           case "remove":
@@ -2375,33 +2670,6 @@
             handleMetadataJobCompletion(job);
             break;
         }
-      }
-
-      // Attach a job link into the Job column for the given rows
-      function attachJobLinksToRows(paths, jobId) {
-        if (!paths || !jobId) return;
-        paths.forEach((path) => {
-          const rows = document.querySelectorAll(".media-row");
-          Array.from(rows).forEach((row) => {
-            const pathCell = row.querySelector(".media-cell.path");
-            if (pathCell && pathCell.textContent.trim() === path) {
-              const jobCell = row.querySelector(".media-cell.job");
-              if (jobCell) {
-                jobCell.innerHTML = `<a href="/job/${jobId}" target="_blank" style="color:#61dafb">Job ${jobId}</a>`;
-              }
-            }
-          });
-        });
-      }
-
-      function updateJobLinks(job) {
-        if (!job || !job.id) return;
-        const jobLinks = document.querySelectorAll(".media-cell.job a");
-        Array.from(jobLinks).forEach((a) => {
-          if (a.getAttribute("href") === `/job/${job.id}`) {
-            a.textContent = `Job ${job.id} (done)`;
-          }
-        });
       }
 
       function handleRemoveJobCompletion(job) {
@@ -2429,11 +2697,6 @@
 
         // Update selection UI
         updateSelection();
-
-        showNotification(
-          `Removed ${paths.length} media item(s) from database`,
-          "success"
-        );
       }
 
       function handleMetadataJobCompletion(job) {
@@ -2449,24 +2712,12 @@
 
         // Refresh affected rows by fetching updated data
         refreshMediaRows(paths);
-
-        showNotification(
-          `Updated metadata for ${paths.length} media item(s)`,
-          "success"
-        );
       }
 
       function handleIngestJobCompletion(job) {
         // For ingest jobs, new media might have been added
-        // We could either reload the entire list or show a notification
-        showNotification(
-          "Media ingest completed. New items may be available.",
-          "info"
-        );
-
-        // If we're showing all items (no search), we could reload
+        // If we're showing all items (no search), offer to reload
         if (!currentSearchQuery) {
-          // Optionally ask user if they want to refresh
           if (
             confirm(
               "New media items have been ingested. Would you like to refresh the list?"
@@ -2479,12 +2730,6 @@
 
       function handleCleanupJobCompletion(job) {
         // For cleanup jobs, some items might have been removed
-        showNotification(
-          "Database cleanup completed. Some items may have been removed.",
-          "info"
-        );
-
-        // Could optionally reload the entire list
         if (
           confirm(
             "Database cleanup completed. Would you like to refresh the list to see changes?"
@@ -2520,11 +2765,6 @@
 
         // Update selection UI
         updateSelection();
-
-        showNotification(
-          `Moved ${originalPaths.length} media item(s) to new location`,
-          "success"
-        );
 
         // Suggest refreshing to see the moved items at their new paths
         if (
@@ -2616,49 +2856,301 @@
         }, 2000);
       }
 
-      function showNotification(message, type = "info") {
-        // Create a notification element
-        const notification = document.createElement("div");
-        notification.style.cssText = `
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          z-index: 10000;
-          padding: 12px 20px;
-          border-radius: 6px;
-          color: white;
-          font-weight: bold;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-          max-width: 400px;
-          word-wrap: break-word;
-          transition: opacity 0.3s ease;
-        `;
+      // -----------------------------
+      // Toast Notification System
+      // -----------------------------
+      const ToastManager = (function () {
+        const container = document.getElementById("toast-container");
+        const toasts = new Map(); // jobId -> toast element
 
-        switch (type) {
-          case "success":
-            notification.style.backgroundColor = "#28a745";
-            break;
-          case "error":
-            notification.style.backgroundColor = "#dc3545";
-            break;
-          case "info":
-          default:
-            notification.style.backgroundColor = "#17a2b8";
-            break;
+        // Human-readable job names
+        const JOB_NAMES = {
+          remove: "Remove from Database",
+          metadata: "Generate Metadata",
+          autotag: "Auto-Tag Media",
+          move: "Move Files",
+          ingest: "Import Media",
+          cleanup: "Clean Up Database",
+        };
+
+        // Status messages
+        const STATUS_MESSAGES = {
+          pending: "Waiting to start...",
+          running: "Processing your request...",
+          success: "Completed successfully!",
+          error: "Something went wrong.",
+        };
+
+        function getJobName(command) {
+          return JOB_NAMES[command] || command || "Task";
         }
 
-        notification.textContent = message;
-        document.body.appendChild(notification);
+        function getStatusIcon(status) {
+          switch (status) {
+            case "pending":
+              return "⏳";
+            case "running":
+              return "⚡";
+            case "success":
+              return "✓";
+            case "error":
+              return "✕";
+            default:
+              return "•";
+          }
+        }
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          notification.style.opacity = "0";
-          setTimeout(() => {
-            if (notification.parentNode) {
-              notification.parentNode.removeChild(notification);
+        function formatTime(date) {
+          return date.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
+
+        function getItemCount(job) {
+          if (!job.input) return null;
+          // Count items (newlines or commas depending on format)
+          const lines = job.input.split(/[\n,]/).filter((l) => l.trim());
+          return lines.length;
+        }
+
+        function getMessage(job, status) {
+          const count = getItemCount(job);
+          const itemText = count
+            ? count === 1
+              ? "1 item"
+              : `${count} items`
+            : null;
+
+          switch (status) {
+            case "pending":
+              return itemText
+                ? `Queued ${itemText} for processing...`
+                : "Waiting in queue...";
+            case "running":
+              return itemText
+                ? `Processing ${itemText}...`
+                : "Working on it...";
+            case "success":
+              return itemText
+                ? `Successfully processed ${itemText}!`
+                : "Task completed successfully!";
+            case "error":
+              return "The task encountered an error. Click to view details.";
+            default:
+              return STATUS_MESSAGES[status] || "";
+          }
+        }
+
+        function createToast(jobId, command, status = "pending") {
+          const job = { id: jobId, command, input: "" };
+          const toast = document.createElement("div");
+          toast.className = "toast";
+          toast.setAttribute("data-job-id", jobId);
+
+          const name = getJobName(command);
+          const icon = getStatusIcon(status);
+          const message = getMessage(job, status);
+          const time = formatTime(new Date());
+
+          toast.innerHTML = `
+            <div class="toast-header">
+              <div class="toast-title">
+                <span class="toast-status-icon ${status}">${icon}</span>
+                <span>${name}</span>
+              </div>
+              <button type="button" class="toast-close" title="Dismiss">✕</button>
+            </div>
+            <div class="toast-body">
+              <div class="toast-message">${message}</div>
+              <div class="toast-progress-container">
+                <div class="toast-progress-bar ${
+                  status === "running" ? "indeterminate" : ""
+                }"></div>
+              </div>
+            </div>
+            <div class="toast-footer">
+              <a href="/job/${jobId}" class="toast-link" target="_blank">View details →</a>
+              <span class="toast-time">Started ${time}</span>
+            </div>
+          `;
+
+          // Close button handler
+          toast.querySelector(".toast-close").addEventListener("click", (e) => {
+            e.stopPropagation();
+            removeToast(jobId);
+          });
+
+          return toast;
+        }
+
+        function addToast(jobId, command) {
+          if (toasts.has(jobId)) {
+            return; // Already tracking this job
+          }
+
+          const toast = createToast(jobId, command, "running");
+          container.appendChild(toast);
+          toasts.set(jobId, { element: toast, command, startTime: Date.now() });
+
+          // Auto-dismiss info toasts after 30 seconds if still pending/running
+          // (job updates will refresh the timer)
+        }
+
+        function updateToast(job) {
+          const jobId = job.id;
+          const toastData = toasts.get(jobId);
+
+          if (!toastData) {
+            // We might receive updates for jobs we didn't create via this page
+            // Create a toast for them anyway so user sees the status
+            if (job.state === 1) {
+              // InProgress
+              const toast = createToast(jobId, job.command, "running");
+              container.appendChild(toast);
+              toasts.set(jobId, {
+                element: toast,
+                command: job.command,
+                startTime: Date.now(),
+              });
             }
+            return;
+          }
+
+          const { element } = toastData;
+          let status = "running";
+
+          // Map job states: 0=Pending, 1=InProgress, 2=Completed, 3=Cancelled, 4=Error
+          switch (job.state) {
+            case 0:
+              status = "pending";
+              break;
+            case 1:
+              status = "running";
+              break;
+            case 2:
+              status = "success";
+              break;
+            case 3:
+              status = "pending"; // Cancelled - treat as pending for display
+              break;
+            case 4:
+              status = "error";
+              break;
+          }
+
+          // Update icon
+          const iconEl = element.querySelector(".toast-status-icon");
+          if (iconEl) {
+            iconEl.className = `toast-status-icon ${status}`;
+            iconEl.textContent = getStatusIcon(status);
+          }
+
+          // Update message
+          const messageEl = element.querySelector(".toast-message");
+          if (messageEl) {
+            messageEl.textContent = getMessage(job, status);
+          }
+
+          // Update progress bar
+          const progressBar = element.querySelector(".toast-progress-bar");
+          if (progressBar) {
+            progressBar.className = "toast-progress-bar";
+            if (status === "running") {
+              progressBar.classList.add("indeterminate");
+            } else if (status === "success") {
+              progressBar.classList.add("complete");
+            } else if (status === "error") {
+              progressBar.classList.add("error");
+            }
+          }
+
+          // Auto-dismiss successful toasts after 5 seconds
+          if (status === "success") {
+            setTimeout(() => removeToast(jobId), 5000);
+          }
+
+          // Auto-dismiss error toasts after 10 seconds (give user time to click)
+          if (status === "error") {
+            setTimeout(() => removeToast(jobId), 10000);
+          }
+        }
+
+        function removeToast(jobId) {
+          const toastData = toasts.get(jobId);
+          if (!toastData) return;
+
+          const { element } = toastData;
+          element.classList.add("exiting");
+
+          setTimeout(() => {
+            if (element.parentNode) {
+              element.parentNode.removeChild(element);
+            }
+            toasts.delete(jobId);
           }, 300);
-        }, 5000);
+        }
+
+        // Simple notification (non-job related)
+        function notify(message, type = "info") {
+          const tempId = "notify-" + Date.now();
+          const toast = document.createElement("div");
+          toast.className = "toast";
+          toast.setAttribute("data-job-id", tempId);
+
+          let icon = "ℹ";
+          let status = "running";
+          if (type === "success") {
+            icon = "✓";
+            status = "success";
+          } else if (type === "error") {
+            icon = "✕";
+            status = "error";
+          }
+
+          toast.innerHTML = `
+            <div class="toast-header">
+              <div class="toast-title">
+                <span class="toast-status-icon ${status}">${icon}</span>
+                <span>Notification</span>
+              </div>
+              <button type="button" class="toast-close" title="Dismiss">✕</button>
+            </div>
+            <div class="toast-body">
+              <div class="toast-message">${escapeHtml(message)}</div>
+            </div>
+          `;
+
+          toast.querySelector(".toast-close").addEventListener("click", () => {
+            toast.classList.add("exiting");
+            setTimeout(() => {
+              if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 300);
+          });
+
+          container.appendChild(toast);
+
+          // Auto-dismiss after 5 seconds
+          setTimeout(() => {
+            toast.classList.add("exiting");
+            setTimeout(() => {
+              if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 300);
+          }, 5000);
+        }
+
+        return {
+          add: addToast,
+          update: updateToast,
+          remove: removeToast,
+          notify: notify,
+          getJobName: getJobName,
+        };
+      })();
+
+      // Backward-compatible showNotification
+      function showNotification(message, type = "info") {
+        ToastManager.notify(message, type);
       }
 
       function htmlToNode(html) {
@@ -2677,17 +3169,76 @@
       }
 
       // -----------------------------
-      // Typeahead search
+      // Typeahead search with recent searches
       // -----------------------------
       (function initTypeahead() {
         const input = document.getElementById("search-input");
         const dropdown = document.getElementById("typeahead-dropdown");
         if (!input || !dropdown) return;
 
+        const RECENT_STORAGE_KEY = "shrike_recent_searches";
+        const MAX_RECENT_SEARCHES = 10;
+
         let items = [];
         let activeIndex = -1;
         let debounceTimer = null;
         let lastReqId = 0;
+
+        // --- Recent Searches Management ---
+        function getRecentSearches() {
+          try {
+            const stored = localStorage.getItem(RECENT_STORAGE_KEY);
+            if (!stored) return [];
+            const parsed = JSON.parse(stored);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (e) {
+            return [];
+          }
+        }
+
+        function saveRecentSearches(searches) {
+          try {
+            localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(searches));
+          } catch (e) {
+            // localStorage might be full or disabled
+          }
+        }
+
+        function addRecentSearch(query) {
+          if (!query || !query.trim()) return;
+          query = query.trim();
+          let recent = getRecentSearches();
+          // Remove if already exists (will re-add at top)
+          recent = recent.filter((s) => s !== query);
+          // Add to beginning
+          recent.unshift(query);
+          // Limit to max
+          if (recent.length > MAX_RECENT_SEARCHES) {
+            recent = recent.slice(0, MAX_RECENT_SEARCHES);
+          }
+          saveRecentSearches(recent);
+        }
+
+        function removeRecentSearch(query) {
+          let recent = getRecentSearches();
+          recent = recent.filter((s) => s !== query);
+          saveRecentSearches(recent);
+        }
+
+        function clearAllRecentSearches() {
+          saveRecentSearches([]);
+        }
+
+        // Hook into search form submission to save searches
+        const searchForm = document.getElementById("search-form");
+        if (searchForm) {
+          searchForm.addEventListener("submit", () => {
+            const query = input.value.trim();
+            if (query) {
+              addRecentSearch(query);
+            }
+          });
+        }
 
         function hideDropdown() {
           dropdown.style.display = "none";
@@ -2696,14 +3247,48 @@
           activeIndex = -1;
         }
 
-        function showDropdown() {
-          if (items.length === 0) {
+        function renderDropdown(recentItems, suggestionItems, showClearAll) {
+          const hasRecent = recentItems && recentItems.length > 0;
+          const hasSuggestions = suggestionItems && suggestionItems.length > 0;
+
+          if (!hasRecent && !hasSuggestions) {
             hideDropdown();
             return;
           }
-          dropdown.style.display = "block";
-          dropdown.innerHTML = items
-            .map((it, idx) => {
+
+          // Build combined items array for keyboard navigation
+          items = [];
+          let html = "";
+
+          // Recent searches section
+          if (hasRecent) {
+            html += '<div class="typeahead-section">Recent Searches</div>';
+            recentItems.forEach((it) => {
+              const idx = items.length;
+              items.push({ text: it.text, kind: "recent", isRecent: true });
+              const cls =
+                idx === activeIndex
+                  ? "typeahead-item recent active"
+                  : "typeahead-item recent";
+              html += `<div class="${cls}" data-index="${idx}">
+                <span><span class="recent-icon">↺</span>${escapeHtml(
+                  it.text
+                )}</span>
+                <button type="button" class="remove-btn" data-remove="${escapeHtml(
+                  it.text
+                )}" title="Remove from history">✕</button>
+              </div>`;
+            });
+          }
+
+          // Suggestions section
+          if (hasSuggestions) {
+            if (hasRecent) {
+              html += '<div class="typeahead-section">Suggestions</div>';
+            }
+            suggestionItems.forEach((it) => {
+              const idx = items.length;
+              items.push({ text: it.text, kind: it.kind, hint: it.hint });
               const cls =
                 idx === activeIndex
                   ? "typeahead-item active"
@@ -2711,25 +3296,87 @@
               const hint = it.hint
                 ? `<span class="hint">${escapeHtml(it.hint)}</span>`
                 : "";
-              return `<div class="${cls}" data-index="${idx}"><span>${escapeHtml(
+              html += `<div class="${cls}" data-index="${idx}"><span>${escapeHtml(
                 it.text
               )}</span>${hint}</div>`;
-            })
-            .join("");
-          // Click handling
-          Array.from(dropdown.children).forEach((el) => {
-            el.addEventListener("mousedown", (e) => {
-              e.preventDefault();
-              const idx = Number(el.getAttribute("data-index"));
-              if (!Number.isNaN(idx)) applySuggestion(items[idx]);
             });
-          });
+          }
+
+          // Clear all button
+          if (hasRecent && showClearAll) {
+            html +=
+              '<div class="typeahead-clear-all" data-clear-all="true">Clear search history</div>';
+          }
+
+          dropdown.style.display = "block";
+          dropdown.innerHTML = html;
+
+          // Event handling
+          Array.from(dropdown.querySelectorAll(".typeahead-item")).forEach(
+            (el) => {
+              el.addEventListener("mousedown", (e) => {
+                // Check if clicking the remove button
+                if (e.target.classList.contains("remove-btn")) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const queryToRemove = e.target.getAttribute("data-remove");
+                  if (queryToRemove) {
+                    removeRecentSearch(queryToRemove);
+                    // Refresh the dropdown
+                    showRecentSearches();
+                  }
+                  return;
+                }
+                e.preventDefault();
+                const idx = Number(el.getAttribute("data-index"));
+                if (!Number.isNaN(idx)) applySuggestion(items[idx]);
+              });
+            }
+          );
+
+          const clearAllBtn = dropdown.querySelector(".typeahead-clear-all");
+          if (clearAllBtn) {
+            clearAllBtn.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              clearAllRecentSearches();
+              hideDropdown();
+            });
+          }
+        }
+
+        function showRecentSearches() {
+          const inputValue = input.value.trim();
+          const recent = getRecentSearches();
+
+          if (inputValue === "") {
+            // Show only recent searches when input is empty
+            if (recent.length === 0) {
+              // No recent searches, show filter suggestions
+              buildSuggestions();
+              return;
+            }
+            const recentItems = recent.map((s) => ({ text: s }));
+            activeIndex = recentItems.length > 0 ? 0 : -1;
+            renderDropdown(recentItems, [], true);
+          } else {
+            // Input has content - show matching recent + API suggestions
+            buildSuggestions();
+          }
         }
 
         function moveActive(delta) {
           if (items.length === 0) return;
           activeIndex = (activeIndex + delta + items.length) % items.length;
-          showDropdown();
+          // Re-render with new active
+          const recentItems = items
+            .filter((it) => it.isRecent)
+            .map((it) => ({ text: it.text }));
+          const suggestionItems = items.filter((it) => !it.isRecent);
+          renderDropdown(
+            recentItems,
+            suggestionItems,
+            input.value.trim() === ""
+          );
         }
 
         function currentTokenInfo() {
@@ -2825,6 +3472,20 @@
           const info = currentTokenInfo();
           const value = input.value;
           const reqId = ++lastReqId;
+          const inputTrimmed = value.trim();
+
+          // Get matching recent searches
+          const allRecent = getRecentSearches();
+          let matchingRecent = [];
+          if (inputTrimmed !== "") {
+            const lowerInput = inputTrimmed.toLowerCase();
+            matchingRecent = allRecent
+              .filter(
+                (s) =>
+                  s.toLowerCase().includes(lowerInput) && s !== inputTrimmed
+              )
+              .slice(0, 3); // Limit matching recent to top 3
+          }
 
           // Stage: key suggestions
           if (info.stage === "key") {
@@ -2844,9 +3505,14 @@
                 ) {
                   arr.unshift("AND", "OR");
                 }
-                items = arr.map((s) => ({ text: s, kind: "key" }));
-                activeIndex = items.length > 0 ? 0 : -1;
-                showDropdown();
+                const suggestionItems = arr.map((s) => ({
+                  text: s,
+                  kind: "key",
+                }));
+                const recentItems = matchingRecent.map((s) => ({ text: s }));
+                activeIndex =
+                  recentItems.length + suggestionItems.length > 0 ? 0 : -1;
+                renderDropdown(recentItems, suggestionItems, false);
               })
               .catch(() => hideDropdown());
             return;
@@ -2858,18 +3524,28 @@
             const vals = ["true", "false"];
             const pref = info.valuePrefix.toLowerCase();
             const arr = vals.filter((v) => v.startsWith(pref));
-            items = arr.map((s) => ({ text: s, kind: "value" }));
-            activeIndex = items.length > 0 ? 0 : -1;
-            showDropdown();
+            const suggestionItems = arr.map((s) => ({
+              text: s,
+              kind: "value",
+            }));
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex =
+              recentItems.length + suggestionItems.length > 0 ? 0 : -1;
+            renderDropdown(recentItems, suggestionItems, false);
             return;
           }
           if (k === "tags") {
             const vals = ["none"];
             const pref = info.valuePrefix.toLowerCase();
             const arr = vals.filter((v) => v.startsWith(pref));
-            items = arr.map((s) => ({ text: s, kind: "value" }));
-            activeIndex = items.length > 0 ? 0 : -1;
-            showDropdown();
+            const suggestionItems = arr.map((s) => ({
+              text: s,
+              kind: "value",
+            }));
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex =
+              recentItems.length + suggestionItems.length > 0 ? 0 : -1;
+            renderDropdown(recentItems, suggestionItems, false);
             return;
           }
           if (
@@ -2881,13 +3557,15 @@
             const ops = [">=", "<=", ">", "<"];
             const pref = info.valuePrefix;
             const arr = ops.filter((o) => o.startsWith(pref));
-            items = arr.map((s) => ({
+            const suggestionItems = arr.map((s) => ({
               text: s,
               kind: "value",
               hint: "operator",
             }));
-            activeIndex = items.length > 0 ? 0 : -1;
-            showDropdown();
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex =
+              recentItems.length + suggestionItems.length > 0 ? 0 : -1;
+            renderDropdown(recentItems, suggestionItems, false);
             return;
           }
           let kind = null;
@@ -2896,7 +3574,14 @@
           else if (k === "path") kind = "path";
           else if (k === "pathdir") kind = "pathdir";
           if (!kind) {
-            hideDropdown();
+            // No API suggestions, but might have matching recent
+            if (matchingRecent.length > 0) {
+              const recentItems = matchingRecent.map((s) => ({ text: s }));
+              activeIndex = 0;
+              renderDropdown(recentItems, [], false);
+            } else {
+              hideDropdown();
+            }
             return;
           }
           const encPrefix = encodeURIComponent(info.valuePrefix || "");
@@ -2905,15 +3590,31 @@
             .then((data) => {
               if (reqId !== lastReqId) return;
               const arr = data.suggestions || [];
-              items = arr.map((s) => ({ text: s, kind: "value" }));
-              activeIndex = items.length > 0 ? 0 : -1;
-              showDropdown();
+              const suggestionItems = arr.map((s) => ({
+                text: s,
+                kind: "value",
+              }));
+              const recentItems = matchingRecent.map((s) => ({ text: s }));
+              activeIndex =
+                recentItems.length + suggestionItems.length > 0 ? 0 : -1;
+              renderDropdown(recentItems, suggestionItems, false);
             })
             .catch(() => hideDropdown());
         }
 
         function applySuggestion(sug) {
           if (!sug) return;
+
+          // For recent searches, replace the entire input
+          if (sug.isRecent) {
+            input.value = sug.text;
+            const newCaret = sug.text.length;
+            input.setSelectionRange(newCaret, newCaret);
+            hideDropdown();
+            input.focus();
+            return;
+          }
+
           const info = currentTokenInfo();
           const value = input.value;
           let insertText = sug.text;
@@ -2983,16 +3684,22 @@
 
         input.addEventListener("input", () => {
           clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(buildSuggestions, 150);
+          debounceTimer = setTimeout(() => {
+            if (input.value.trim() === "") {
+              showRecentSearches();
+            } else {
+              buildSuggestions();
+            }
+          }, 150);
         });
 
         input.addEventListener("focus", () => {
           clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(buildSuggestions, 100);
+          debounceTimer = setTimeout(showRecentSearches, 100);
         });
 
         input.addEventListener("blur", () => {
-          setTimeout(() => hideDropdown(), 120);
+          setTimeout(() => hideDropdown(), 150);
         });
       })();
     </script>

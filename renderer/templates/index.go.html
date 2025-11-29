@@ -7,8 +7,22 @@
     <title>Shrike – Quick Jobs</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
+      :root {
+        --accent-cyan: #61dafb;
+        --accent-green: #2ecc71;
+        --accent-yellow: #f1c40f;
+        --accent-orange: #f39c12;
+        --accent-red: #e74c3c;
+        --accent-blue: #3498db;
+        --bg-card: #232323;
+        --bg-elevated: #2a2a2a;
+        --border-subtle: #3a3a3a;
+        --text-primary: #e8e8e8;
+        --text-muted: #888;
+      }
+
       .container {
-        max-width: 960px;
+        max-width: 1100px;
         margin: 0 auto;
         padding: 20px;
       }
@@ -18,34 +32,268 @@
         align-items: center;
         gap: 10px;
       }
+
+      /* Active Jobs Panel */
+      .active-jobs-panel {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-top: 16px;
+        margin-bottom: 20px;
+      }
+      .active-jobs-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .active-jobs-header h2 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .active-jobs-header .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent-green);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      .active-jobs-header .pulse-dot.idle {
+        background: var(--text-muted);
+        animation: none;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.5;
+          transform: scale(1.2);
+        }
+      }
+      .jobs-count {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.05);
+        padding: 4px 10px;
+        border-radius: 12px;
+      }
+      .active-jobs-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .active-jobs-empty {
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        padding: 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 6px;
+        border: 1px dashed #3a3a3a;
+      }
+      .job-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
+        border-left: 3px solid transparent;
+        transition: all 0.2s ease;
+      }
+      .job-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .job-item.running {
+        border-left-color: var(--accent-blue);
+      }
+      .job-item.pending {
+        border-left-color: var(--accent-yellow);
+      }
+      .job-status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .job-status-indicator.running {
+        background-color: transparent;
+        border: 2px solid var(--accent-blue);
+        border-top-color: transparent;
+        animation: rotate 1s linear infinite;
+      }
+      .job-status-indicator.pending {
+        background-color: var(--accent-yellow);
+      }
+      @keyframes rotate {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .job-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .job-command {
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+        font-size: 0.85rem;
+        color: var(--accent-cyan);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .job-detail {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .job-actions {
+        display: flex;
+        gap: 6px;
+      }
+      .job-actions button {
+        font-size: 0.7rem;
+        padding: 4px 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid #444;
+        color: var(--text-muted);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .job-actions button:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-primary);
+        border-color: #666;
+      }
+
+      /* Grid and Cards */
       .grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        grid-template-columns: repeat(2, minmax(280px, 1fr));
         gap: 16px;
       }
       .card {
-        background: #232323;
-        border: 1px solid #444;
-        border-radius: 6px;
-        padding: 16px;
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 20px;
+        position: relative;
+        transition: all 0.2s ease;
+      }
+      .card:hover {
+        border-color: #4a4a4a;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
       }
       .card h3 {
         margin: 0 0 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
+      .card-description {
+        color: var(--text-muted);
+        margin: 4px 0 16px 0;
+        font-size: 0.9rem;
+        line-height: 1.4;
+      }
+
+      /* Card Status Badge */
+      .card-status {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        opacity: 0;
+        transform: translateY(-4px);
+        transition: all 0.3s ease;
+      }
+      .card-status.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .card-status.running {
+        background: rgba(52, 152, 219, 0.15);
+        color: var(--accent-blue);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+      }
+      .card-status.pending {
+        background: rgba(241, 196, 15, 0.15);
+        color: var(--accent-yellow);
+        border: 1px solid rgba(241, 196, 15, 0.3);
+      }
+      .card-status .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+      }
+      .card-status.running .status-dot {
+        background: transparent;
+        border: 1.5px solid var(--accent-blue);
+        border-top-color: transparent;
+        animation: rotate 0.8s linear infinite;
+      }
+      .card-status.pending .status-dot {
+        background: var(--accent-yellow);
+      }
+
+      /* Buttons */
       .btn {
-        padding: 8px 12px;
-        border-radius: 4px;
+        padding: 10px 16px;
+        border-radius: 6px;
         cursor: pointer;
         border: 1px solid #555;
         background: #333;
         color: #d4d4d4;
-        font-weight: bold;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.15s ease;
+      }
+      .btn:hover {
+        background: #444;
+        border-color: #666;
       }
       .btn-primary {
-        background: #61dafb;
+        background: linear-gradient(135deg, #61dafb 0%, #4fa8c9 100%);
         color: #000;
-        border-color: #61dafb;
+        border-color: transparent;
       }
+      .btn-primary:hover {
+        background: linear-gradient(135deg, #72e2ff 0%, #61dafb 100%);
+        box-shadow: 0 4px 12px rgba(97, 218, 251, 0.3);
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Form Elements */
       .row {
         display: flex;
         flex-wrap: wrap;
@@ -54,21 +302,97 @@
       }
       .input {
         width: 100%;
-        padding: 8px 10px;
-        border-radius: 4px;
-        border: 1px solid #333;
-        background-color: #111;
-        color: #d4d4d4;
-        font-family: monospace;
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: 1px solid #3a3a3a;
+        background-color: #1a1a1a;
+        color: var(--text-primary);
+        font-family: "JetBrains Mono", "Fira Code", monospace;
         font-size: 14px;
         box-sizing: border-box;
+        transition: border-color 0.2s ease;
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--accent-cyan);
       }
       label {
-        color: #aaa;
+        color: var(--text-muted);
+        font-size: 0.9rem;
       }
+      label input[type="checkbox"] {
+        margin-right: 6px;
+      }
+
+      /* Status Messages */
+      .status-message {
+        font-size: 0.85rem;
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin-top: 12px;
+      }
+      .status-message.success {
+        background: rgba(46, 204, 113, 0.1);
+        color: var(--accent-green);
+        border: 1px solid rgba(46, 204, 113, 0.2);
+      }
+      .status-message.error {
+        background: rgba(231, 76, 60, 0.1);
+        color: var(--accent-red);
+        border: 1px solid rgba(231, 76, 60, 0.2);
+      }
+      .status-message.info {
+        background: rgba(97, 218, 251, 0.1);
+        color: var(--accent-cyan);
+        border: 1px solid rgba(97, 218, 251, 0.2);
+      }
+
+      /* Footer Link */
+      .footer-link {
+        margin-top: 24px;
+        padding: 16px 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 8px;
+        border: 1px dashed var(--border-subtle);
+        text-align: center;
+      }
+      .footer-link a {
+        color: var(--accent-cyan);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .footer-link a:hover {
+        text-decoration: underline;
+      }
+
+      /* Connection Status */
+      .connection-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+      }
+      .connection-status .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent-green);
+      }
+      .connection-status.disconnected .dot {
+        background: var(--accent-red);
+      }
+      .connection-status.connecting .dot {
+        background: var(--accent-yellow);
+        animation: pulse 1s ease-in-out infinite;
+      }
+
       @media screen and (max-width: 800px) {
         .grid {
           grid-template-columns: 1fr;
+        }
+        .active-jobs-panel {
+          margin-top: 12px;
         }
       }
     </style>
@@ -78,13 +402,39 @@
       <h1>Quick Jobs</h1>
       {{ template "topnav" . }}
 
-      <div class="grid" style="margin-top: 12px">
-        <div class="card">
+      <!-- Active Jobs Panel -->
+      <div class="active-jobs-panel">
+        <div class="active-jobs-header">
+          <h2>
+            <span class="pulse-dot idle" id="activityIndicator"></span>
+            Active Jobs
+          </h2>
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span class="jobs-count" id="jobsCount">0 jobs</span>
+            <div class="connection-status" id="connectionStatus">
+              <span class="dot"></span>
+              <span>Connected</span>
+            </div>
+          </div>
+        </div>
+        <div class="active-jobs-list" id="activeJobsList">
+          <div class="active-jobs-empty" id="emptyState">
+            No active jobs — start one below!
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card" id="card-ingest">
+          <div class="card-status" id="status-ingest">
+            <span class="status-dot"></span>
+            <span class="status-text">Running</span>
+          </div>
           <h3>Ingest media from path</h3>
-          <p style="color: #aaa; margin: 4px 0 8px 0">
+          <p class="card-description">
             Enter a local folder path to scan and ingest media files.
           </p>
-          <div class="row" style="margin-bottom: 8px">
+          <div class="row" style="margin-bottom: 10px">
             <input
               class="input"
               id="ingestPath"
@@ -94,23 +444,30 @@
             />
             <datalist id="pathdir-suggestions"></datalist>
           </div>
-          <div class="row" style="margin-bottom: 12px">
-            <label for="ingestRecursive" style="display: inline-flex; gap: 6px"
-              ><input type="checkbox" id="ingestRecursive" /> Scan
-              recursively</label
+          <div class="row" style="margin-bottom: 14px">
+            <label
+              for="ingestRecursive"
+              style="display: inline-flex; align-items: center; cursor: pointer"
             >
+              <input type="checkbox" id="ingestRecursive" />
+              Scan recursively
+            </label>
           </div>
           <div class="row">
             <button class="btn btn-primary" onclick="createIngestJob()">
               Start ingest
             </button>
           </div>
-          <div id="ingestStatus" style="color: #aaa; margin-top: 8px"></div>
+          <div id="ingestStatus"></div>
         </div>
 
-        <div class="card">
-          <h3>Generate transcripts (missing only)</h3>
-          <p style="color: #aaa; margin-top: 4px">
+        <div class="card" id="card-transcript">
+          <div class="card-status" id="status-transcript">
+            <span class="status-dot"></span>
+            <span class="status-text">Running</span>
+          </div>
+          <h3>Generate transcripts</h3>
+          <p class="card-description">
             Create a job to generate transcripts for items without one.
           </p>
           <button class="btn btn-primary" onclick="createTranscriptsJob()">
@@ -118,9 +475,13 @@
           </button>
         </div>
 
-        <div class="card">
-          <h3>Generate descriptions (missing only)</h3>
-          <p style="color: #aaa; margin-top: 4px">
+        <div class="card" id="card-description">
+          <div class="card-status" id="status-description">
+            <span class="status-dot"></span>
+            <span class="status-text">Running</span>
+          </div>
+          <h3>Generate descriptions</h3>
+          <p class="card-description">
             Create a job to generate descriptions for items with none.
           </p>
           <button class="btn btn-primary" onclick="createDescriptionsJob()">
@@ -128,9 +489,13 @@
           </button>
         </div>
 
-        <div class="card">
-          <h3>Auto-tag with ONNX tagger (untagged images)</h3>
-          <p style="color: #aaa; margin-top: 4px">
+        <div class="card" id="card-autotag">
+          <div class="card-status" id="status-autotag">
+            <span class="status-dot"></span>
+            <span class="status-text">Running</span>
+          </div>
+          <h3>Auto-tag with ONNX tagger</h3>
+          <p class="card-description">
             Use the ONNX tagger to add Suggested tags where none exist.
           </p>
           <button class="btn btn-primary" onclick="createOnnxAutotagJob()">
@@ -138,9 +503,13 @@
           </button>
         </div>
 
-        <div class="card">
-          <h3>Cleanup database (remove orphans)</h3>
-          <p style="color: #aaa; margin-top: 4px">
+        <div class="card" id="card-cleanup">
+          <div class="card-status" id="status-cleanup">
+            <span class="status-dot"></span>
+            <span class="status-text">Running</span>
+          </div>
+          <h3>Cleanup database</h3>
+          <p class="card-description">
             Remove media entries whose files are missing from disk.
           </p>
           <button class="btn btn-primary" onclick="createCleanupJob()">
@@ -149,15 +518,27 @@
         </div>
       </div>
 
-      <div style="margin-top: 20px; color: #aaa">
-        View progress in <a href="/jobs" style="color: #61dafb">Jobs</a>.
+      <div class="footer-link">
+        View detailed job progress in <a href="/jobs">Jobs Dashboard →</a>
       </div>
     </div>
 
     <script>
+      // Job state tracking
+      const jobsState = {
+        jobs: new Map(),
+        cardTypes: {
+          ingest: "ingest",
+          metadata: null, // Will check arguments for transcript/description
+          autotag: "autotag",
+          cleanup: "cleanup",
+        },
+      };
+
       function b64(s) {
         return btoa(unescape(encodeURIComponent(s)));
       }
+
       function postCreate(input) {
         return fetch("/create", {
           method: "POST",
@@ -168,62 +549,540 @@
           return r.json();
         });
       }
+
+      function showStatus(elementId, message, type) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        el.className = "status-message " + type;
+        el.textContent = message;
+        el.style.display = "block";
+        if (type === "success") {
+          setTimeout(() => {
+            el.style.display = "none";
+          }, 5000);
+        }
+      }
+
       function createTranscriptsJob() {
         const query = 'transcript:""';
         const args = "--type transcript --apply all --query64=" + b64(query);
         postCreate(`metadata ${args}`)
           .then((res) => {
-            alert("Transcripts job created: " + res.id);
+            showStatus(
+              "ingestStatus",
+              "Transcripts job created: " + res.id,
+              "success"
+            );
           })
-          .catch((err) => alert("Error: " + err.message));
+          .catch((err) =>
+            showStatus("ingestStatus", "Error: " + err.message, "error")
+          );
       }
+
       function createDescriptionsJob() {
         const query = 'description:""';
         const args = "--type description --apply all --query64=" + b64(query);
         postCreate(`metadata ${args}`)
           .then((res) => {
-            alert("Descriptions job created: " + res.id);
+            showStatus(
+              "ingestStatus",
+              "Descriptions job created: " + res.id,
+              "success"
+            );
           })
-          .catch((err) => alert("Error: " + err.message));
+          .catch((err) =>
+            showStatus("ingestStatus", "Error: " + err.message, "error")
+          );
       }
+
       function createOnnxAutotagJob() {
         const query = "tags:none";
         const args = "--query64=" + b64(query);
         postCreate(`autotag ${args}`)
           .then((res) => {
-            alert("ONNX autotag job created: " + res.id);
+            showStatus(
+              "ingestStatus",
+              "ONNX autotag job created: " + res.id,
+              "success"
+            );
           })
-          .catch((err) => alert("Error: " + err.message));
+          .catch((err) =>
+            showStatus("ingestStatus", "Error: " + err.message, "error")
+          );
       }
+
       function createIngestJob() {
         const statusEl = document.getElementById("ingestStatus");
         const path = (document.getElementById("ingestPath").value || "").trim();
         const recursive = document.getElementById("ingestRecursive").checked;
         if (!path) {
-          statusEl.style.color = "#e06c75";
-          statusEl.textContent = "Please enter a folder path.";
+          showStatus("ingestStatus", "Please enter a folder path.", "error");
           return;
         }
-        statusEl.style.color = "#aaa";
-        statusEl.textContent = "Creating ingest job...";
+        showStatus("ingestStatus", "Creating ingest job...", "info");
         const args = (recursive ? "--recursive " : "") + `"${path}"`;
         postCreate(`ingest ${args}`)
           .then((res) => {
-            statusEl.style.color = "#aaa";
-            statusEl.textContent = "Ingest job created: " + res.id;
+            showStatus(
+              "ingestStatus",
+              "Ingest job created: " + res.id,
+              "success"
+            );
+            document.getElementById("ingestPath").value = "";
           })
-          .catch((err) => {
-            statusEl.style.color = "#e06c75";
-            statusEl.textContent = "Error: " + err.message;
-          });
+          .catch((err) =>
+            showStatus("ingestStatus", "Error: " + err.message, "error")
+          );
       }
+
       function createCleanupJob() {
         postCreate("cleanup")
           .then((res) => {
-            alert("Cleanup job created: " + res.id);
+            showStatus(
+              "ingestStatus",
+              "Cleanup job created: " + res.id,
+              "success"
+            );
           })
-          .catch((err) => alert("Error: " + err.message));
+          .catch((err) =>
+            showStatus("ingestStatus", "Error: " + err.message, "error")
+          );
       }
+
+      // Determine card type from job data
+      function getCardTypeFromJob(job) {
+        const cmd = (job.command || job.Command || "").toLowerCase();
+        const args = (job.arguments || job.Arguments || "").toLowerCase();
+
+        if (cmd === "ingest") return "ingest";
+        if (cmd === "autotag") return "autotag";
+        if (cmd === "cleanup") return "cleanup";
+        if (cmd === "metadata") {
+          if (args.includes("--type transcript")) return "transcript";
+          if (args.includes("--type description")) return "description";
+        }
+        return null;
+      }
+
+      // Get job state (Pending = 0, InProgress = 1)
+      function getJobState(job) {
+        const state = job.state || job.State;
+        if (state === 0 || state === "Pending") return "pending";
+        if (state === 1 || state === "InProgress") return "running";
+        return null;
+      }
+
+      // Update card status badges
+      function updateCardStatuses() {
+        const cardStatuses = {
+          ingest: { running: 0, pending: 0 },
+          transcript: { running: 0, pending: 0 },
+          description: { running: 0, pending: 0 },
+          autotag: { running: 0, pending: 0 },
+          cleanup: { running: 0, pending: 0 },
+        };
+
+        jobsState.jobs.forEach((job) => {
+          const cardType = getCardTypeFromJob(job);
+          const state = getJobState(job);
+          if (cardType && state && cardStatuses[cardType]) {
+            cardStatuses[cardType][state]++;
+          }
+        });
+
+        Object.keys(cardStatuses).forEach((type) => {
+          const statusEl = document.getElementById("status-" + type);
+          if (!statusEl) return;
+
+          const { running, pending } = cardStatuses[type];
+          if (running > 0) {
+            statusEl.className = "card-status running visible";
+            statusEl.querySelector(".status-text").textContent =
+              running > 1 ? `${running} Running` : "Running";
+          } else if (pending > 0) {
+            statusEl.className = "card-status pending visible";
+            statusEl.querySelector(".status-text").textContent =
+              pending > 1 ? `${pending} Queued` : "Queued";
+          } else {
+            statusEl.className = "card-status";
+          }
+        });
+      }
+
+      // Render active jobs list
+      function renderActiveJobsList() {
+        const listEl = document.getElementById("activeJobsList");
+        const emptyEl = document.getElementById("emptyState");
+        const countEl = document.getElementById("jobsCount");
+        const activityEl = document.getElementById("activityIndicator");
+
+        // Filter to only active jobs (pending or in-progress)
+        const activeJobs = Array.from(jobsState.jobs.values()).filter((job) => {
+          const state = getJobState(job);
+          return state === "pending" || state === "running";
+        });
+
+        // Sort by state (running first) then by created time
+        activeJobs.sort((a, b) => {
+          const stateA = getJobState(a);
+          const stateB = getJobState(b);
+          if (stateA === "running" && stateB !== "running") return -1;
+          if (stateA !== "running" && stateB === "running") return 1;
+          return 0;
+        });
+
+        // Update count
+        const runningCount = activeJobs.filter(
+          (j) => getJobState(j) === "running"
+        ).length;
+        const pendingCount = activeJobs.filter(
+          (j) => getJobState(j) === "pending"
+        ).length;
+
+        let countText = "";
+        if (runningCount > 0 && pendingCount > 0) {
+          countText = `${runningCount} running, ${pendingCount} queued`;
+        } else if (runningCount > 0) {
+          countText = `${runningCount} running`;
+        } else if (pendingCount > 0) {
+          countText = `${pendingCount} queued`;
+        } else {
+          countText = "0 jobs";
+        }
+        countEl.textContent = countText;
+
+        // Update activity indicator
+        if (runningCount > 0) {
+          activityEl.classList.remove("idle");
+        } else {
+          activityEl.classList.add("idle");
+        }
+
+        // Show empty state or jobs
+        if (activeJobs.length === 0) {
+          emptyEl.style.display = "block";
+          // Remove all job items
+          listEl.querySelectorAll(".job-item").forEach((el) => el.remove());
+          return;
+        }
+
+        emptyEl.style.display = "none";
+
+        // Create or update job items
+        const existingIds = new Set();
+        activeJobs.forEach((job) => {
+          const jobId = job.id || job.ID;
+          existingIds.add(jobId);
+
+          let itemEl = listEl.querySelector(`[data-job-id="${jobId}"]`);
+          const state = getJobState(job);
+          const command = job.command || job.Command || "";
+          const args = job.arguments || job.Arguments || "";
+          const input = job.input || job.Input || "";
+
+          if (!itemEl) {
+            itemEl = document.createElement("div");
+            itemEl.className = "job-item " + state;
+            itemEl.setAttribute("data-job-id", jobId);
+            itemEl.innerHTML = `
+              <div class="job-status-indicator ${state}"></div>
+              <div class="job-info">
+                <div class="job-command"></div>
+                <div class="job-detail"></div>
+              </div>
+              <div class="job-actions">
+                <button onclick="cancelJobById('${jobId}')">Cancel</button>
+              </div>
+            `;
+            listEl.appendChild(itemEl);
+          }
+
+          itemEl.className = "job-item " + state;
+          itemEl.querySelector(".job-status-indicator").className =
+            "job-status-indicator " + state;
+          itemEl.querySelector(".job-command").textContent =
+            command + (args ? " " + args : "");
+          itemEl.querySelector(".job-detail").textContent = input || "No input";
+        });
+
+        // Remove old job items
+        listEl.querySelectorAll(".job-item").forEach((el) => {
+          const jobId = el.getAttribute("data-job-id");
+          if (!existingIds.has(jobId)) {
+            el.remove();
+          }
+        });
+      }
+
+      function cancelJobById(id) {
+        fetch(`/job/${id}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+          .then((r) => r.text())
+          .then((result) => console.log("Cancelled:", result))
+          .catch((err) => console.error("Error:", err));
+      }
+
+      // SSE Connection Management
+      document.addEventListener("DOMContentLoaded", function () {
+        const STREAM_URL = "/stream";
+        const connectionStatusEl = document.getElementById("connectionStatus");
+
+        const sseState = {
+          es: null,
+          reconnectTimer: null,
+          heartbeatTimer: null,
+          connectingTimer: null,
+          backoffMs: 1000,
+          maxBackoffMs: 30000,
+          isConnecting: false,
+          isExplicitlyClosed: false,
+          lastActivityTs: Date.now(),
+          lifecycleSetup: false,
+        };
+
+        function updateConnectionStatus(status) {
+          connectionStatusEl.className = "connection-status " + status;
+          const textEl = connectionStatusEl.querySelector("span:last-child");
+          if (status === "connected") {
+            textEl.textContent = "Connected";
+          } else if (status === "connecting") {
+            textEl.textContent = "Connecting...";
+          } else {
+            textEl.textContent = "Disconnected";
+          }
+        }
+
+        function withJitter(ms) {
+          const jitter = Math.floor(ms * 0.2 * Math.random());
+          return ms + jitter;
+        }
+        function resetBackoff() {
+          sseState.backoffMs = 1000;
+        }
+        function onActivity() {
+          sseState.lastActivityTs = Date.now();
+          resetBackoff();
+        }
+        function stopHeartbeat() {
+          if (sseState.heartbeatTimer) {
+            clearInterval(sseState.heartbeatTimer);
+            sseState.heartbeatTimer = null;
+          }
+        }
+        function startHeartbeat() {
+          stopHeartbeat();
+          sseState.heartbeatTimer = setInterval(() => {
+            const inactiveMs = Date.now() - sseState.lastActivityTs;
+            if (inactiveMs > 45000) {
+              console.warn("SSE idle too long; recreating connection");
+              recreateConnection();
+            }
+          }, 15000);
+        }
+        function clearConnectingTimer() {
+          if (sseState.connectingTimer) {
+            clearTimeout(sseState.connectingTimer);
+            sseState.connectingTimer = null;
+          }
+        }
+        function scheduleReconnect(reason) {
+          if (sseState.isExplicitlyClosed) return;
+          if (sseState.reconnectTimer) return;
+          const delay = withJitter(sseState.backoffMs);
+          console.log(`SSE reconnect in ${delay}ms (${reason || ""})`);
+          updateConnectionStatus("disconnected");
+          sseState.reconnectTimer = setTimeout(() => {
+            sseState.reconnectTimer = null;
+            connect();
+          }, delay);
+          sseState.backoffMs = Math.min(
+            sseState.maxBackoffMs,
+            sseState.backoffMs * 2
+          );
+        }
+        function cleanupES(markExplicit) {
+          if (markExplicit) sseState.isExplicitlyClosed = true;
+          stopHeartbeat();
+          clearConnectingTimer();
+          if (sseState.es) {
+            try {
+              sseState.es.close();
+            } catch (e) {}
+          }
+          sseState.es = null;
+          sseState.isConnecting = false;
+        }
+        function recreateConnection() {
+          cleanupES(false);
+          connect();
+        }
+
+        function parseJobFromEvent(data) {
+          try {
+            const parsed = JSON.parse(data);
+            return parsed.job || parsed;
+          } catch (e) {
+            return null;
+          }
+        }
+
+        function connect() {
+          if (sseState.isConnecting) return;
+          if (sseState.es && sseState.es.readyState !== EventSource.CLOSED)
+            return;
+          if (!navigator.onLine) {
+            scheduleReconnect("offline");
+            return;
+          }
+          if (document.visibilityState === "hidden") {
+            scheduleReconnect("hidden");
+            return;
+          }
+          sseState.isConnecting = true;
+          updateConnectionStatus("connecting");
+
+          try {
+            console.log("Connecting to EventSource...");
+            const es = new EventSource(STREAM_URL);
+            sseState.es = es;
+            clearConnectingTimer();
+            sseState.connectingTimer = setTimeout(() => {
+              if (
+                sseState.es &&
+                sseState.es.readyState === EventSource.CONNECTING
+              ) {
+                console.warn("SSE stuck CONNECTING; recreating");
+                recreateConnection();
+              }
+            }, 20000);
+
+            es.onopen = () => {
+              sseState.isConnecting = false;
+              clearConnectingTimer();
+              onActivity();
+              startHeartbeat();
+              updateConnectionStatus("connected");
+              console.log("EventSource connected.");
+
+              // Fetch initial jobs list
+              fetchInitialJobs();
+            };
+
+            es.onerror = (error) => {
+              console.warn("SSE error", error);
+              onActivity();
+              if (!sseState.es) return;
+              if (sseState.es.readyState === EventSource.CLOSED) {
+                cleanupES(false);
+                scheduleReconnect("closed");
+              } else if (sseState.es.readyState === EventSource.CONNECTING) {
+                scheduleReconnect("connecting");
+              }
+            };
+
+            es.addEventListener("create", (event) => {
+              onActivity();
+              const job = parseJobFromEvent(event.data);
+              if (job && (job.id || job.ID)) {
+                jobsState.jobs.set(job.id || job.ID, job);
+                renderActiveJobsList();
+                updateCardStatuses();
+              }
+            });
+
+            es.addEventListener("update", (event) => {
+              onActivity();
+              const job = parseJobFromEvent(event.data);
+              if (job && (job.id || job.ID)) {
+                jobsState.jobs.set(job.id || job.ID, job);
+                renderActiveJobsList();
+                updateCardStatuses();
+              }
+            });
+
+            es.addEventListener("delete", (event) => {
+              onActivity();
+              const data = JSON.parse(event.data);
+              const jobId = data.job?.id || data.job?.ID;
+              if (jobId) {
+                jobsState.jobs.delete(jobId);
+                renderActiveJobsList();
+                updateCardStatuses();
+              }
+            });
+          } catch (e) {
+            console.error("SSE connect threw", e);
+            sseState.isConnecting = false;
+            scheduleReconnect("exception");
+          }
+        }
+
+        function fetchInitialJobs() {
+          fetch("/jobs/list")
+            .then((r) => r.json())
+            .then((jobs) => {
+              jobsState.jobs.clear();
+              if (Array.isArray(jobs)) {
+                jobs.forEach((job) => {
+                  if (job.id || job.ID) {
+                    jobsState.jobs.set(job.id || job.ID, job);
+                  }
+                });
+              }
+              renderActiveJobsList();
+              updateCardStatuses();
+            })
+            .catch((err) => {
+              console.warn("Failed to fetch initial jobs:", err);
+            });
+        }
+
+        function setupLifecycle() {
+          if (sseState.lifecycleSetup) return;
+          sseState.lifecycleSetup = true;
+          window.addEventListener("online", () => {
+            resetBackoff();
+            connect();
+          });
+          window.addEventListener("offline", () => {
+            cleanupES(false);
+            updateConnectionStatus("disconnected");
+          });
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+              resetBackoff();
+              connect();
+            }
+          });
+          window.addEventListener("focus", () => {
+            resetBackoff();
+            if (!sseState.es || sseState.es.readyState === EventSource.CLOSED) {
+              connect();
+            } else {
+              const inactiveMs = Date.now() - sseState.lastActivityTs;
+              if (inactiveMs > 15000) {
+                recreateConnection();
+              }
+            }
+          });
+          window.addEventListener("pageshow", () => {
+            resetBackoff();
+            connect();
+          });
+          window.addEventListener("pagehide", () => {
+            cleanupES(false);
+          });
+          window.addEventListener("beforeunload", () => {
+            cleanupES(true);
+          });
+        }
+
+        setupLifecycle();
+        connect();
+      });
+
       // Populate directory suggestions
       (function loadPathDirSuggestions() {
         fetch("/media/suggest?kind=pathdir&limit=50")
