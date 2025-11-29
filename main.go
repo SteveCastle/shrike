@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -525,8 +526,19 @@ func mediaAPIHandler(deps *Dependencies) http.HandlerFunc {
 		offsetStr := r.URL.Query().Get("offset")
 		limitStr := r.URL.Query().Get("limit")
 		searchQuery := r.URL.Query().Get("q")
-		pathQuery := r.URL.Query().Get("path")
 		singleStr := r.URL.Query().Get("single")
+
+		// For the path parameter, use robust decoding to handle unicode characters
+		var pathQuery string
+		if rawPath := getRawQueryParam(r.URL.RawQuery, "path"); rawPath != "" {
+			decoded, err := url.PathUnescape(rawPath)
+			if err != nil {
+				log.Printf("Error decoding path parameter: %v", err)
+				http.Error(w, "Invalid path encoding", http.StatusBadRequest)
+				return
+			}
+			pathQuery = decoded
+		}
 
 		// Check if this is a single item request by path
 		if pathQuery != "" && singleStr == "true" {
@@ -879,6 +891,21 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// getRawQueryParam extracts a parameter value from a raw query string without decoding.
+// This allows us to use url.PathUnescape instead of url.QueryUnescape, which:
+// 1. Properly handles complex unicode characters
+// 2. Does not treat '+' as space (important for file paths that may contain '+')
+// 3. Handles all valid percent-encoded sequences
+func getRawQueryParam(rawQuery, key string) string {
+	keyPrefix := key + "="
+	for _, param := range strings.Split(rawQuery, "&") {
+		if strings.HasPrefix(param, keyPrefix) {
+			return strings.TrimPrefix(param, keyPrefix)
+		}
+	}
+	return ""
+}
+
 // mediaFileHandler serves individual media files for preview
 func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -887,10 +914,21 @@ func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Get the file path from query parameter (already decoded by net/url)
-		filePath := r.URL.Query().Get("path")
-		if filePath == "" {
+		// Get the file path from query parameter using robust decoding
+		// We use getRawQueryParam + PathUnescape to properly handle:
+		// 1. Complex unicode characters (properly decoded from percent-encoded UTF-8)
+		// 2. Plus signs in paths (not treated as spaces, unlike QueryUnescape)
+		// 3. All valid path characters
+		rawPath := getRawQueryParam(r.URL.RawQuery, "path")
+		if rawPath == "" {
 			http.Error(w, "Missing path parameter", http.StatusBadRequest)
+			return
+		}
+
+		filePath, err := url.PathUnescape(rawPath)
+		if err != nil {
+			log.Printf("Error decoding path parameter: %v (raw: %s)", err, rawPath)
+			http.Error(w, "Invalid path encoding", http.StatusBadRequest)
 			return
 		}
 

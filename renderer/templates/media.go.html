@@ -26,7 +26,10 @@
         font-family: monospace;
         background-color: #1e1e1e;
         color: #d4d4d4;
-        margin: 0;
+        margin-top: 16px;
+        border: 1px solid #333;
+        border-radius: 8px;
+        overflow: hidden;
       }
 
       .media-header,
@@ -40,12 +43,19 @@
       }
 
       .media-header {
-        font-weight: bold;
-        background-color: #333;
-        color: #ffffff;
+        font-weight: 600;
+        background-color: #252525;
+        color: #888;
+        font-size: 0.8em;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
         position: sticky;
         top: 0;
         z-index: 10;
+      }
+
+      .media-row:last-child {
+        border-bottom: none;
       }
 
       .media-cell {
@@ -183,35 +193,55 @@
 
       .tag-item {
         display: inline-block;
-        background-color: #444;
-        color: #fff;
-        padding: 1px 4px;
-        margin: 1px 1px;
-        border-radius: 3px;
+        background-color: #333;
+        color: #b0b0b0;
+        padding: 2px 6px;
+        margin: 2px;
+        border-radius: 4px;
         font-size: 0.75em;
         white-space: nowrap;
         vertical-align: top;
         line-height: 1.3;
+        border: 1px solid #444;
       }
 
       .tag-category {
-        background-color: #666;
-        color: #ccc;
-        font-weight: bold;
+        color: #888;
+        font-weight: 500;
+        margin-right: 2px;
       }
 
       .loading {
         text-align: center;
-        padding: 20px;
-        color: #888;
-        font-style: italic;
+        padding: 32px 20px;
+        color: #666;
+        font-size: 0.9em;
+      }
+
+      .loading::before {
+        content: "";
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid #333;
+        border-top-color: #61dafb;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-right: 10px;
+        vertical-align: middle;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .end-of-list {
         text-align: center;
-        padding: 20px;
-        color: #666;
-        font-style: italic;
+        padding: 32px 20px;
+        color: #555;
+        font-size: 0.9em;
       }
 
       /* Typeahead */
@@ -220,90 +250,112 @@
         flex: 1;
         display: flex;
       }
+
       .typeahead-dropdown {
         position: absolute;
-        top: 100%;
+        top: calc(100% + 4px);
         left: 0;
         right: 0;
-        background: #1e1e1e;
+        background: #1a1a1a;
         border: 1px solid #444;
-        border-top: none;
-        max-height: 260px;
+        border-radius: 8px;
+        max-height: 280px;
         overflow-y: auto;
-        z-index: 100;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 1000;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
       }
+
       .typeahead-item {
-        padding: 8px 10px;
-        font-family: monospace;
+        padding: 10px 14px;
         color: #d4d4d4;
         cursor: pointer;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        font-size: 0.9em;
+        transition: background 0.1s ease;
       }
+
+      .typeahead-item:first-child {
+        border-radius: 7px 7px 0 0;
+      }
+
+      .typeahead-item:last-child {
+        border-radius: 0 0 7px 7px;
+      }
+
       .typeahead-item:hover,
       .typeahead-item.active {
-        background: #2b2b2b;
+        background: #2a2a2a;
       }
+
       .typeahead-item .hint {
-        color: #888;
+        color: #666;
         font-size: 0.85em;
       }
+
       .typeahead-section {
-        padding: 6px 10px 4px;
-        font-size: 0.75em;
+        padding: 8px 14px 6px;
+        font-size: 0.7em;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: #61dafb;
-        background: #252525;
+        color: #888;
+        background: #222;
         border-bottom: 1px solid #333;
         user-select: none;
       }
+
       .typeahead-item.recent {
-        background: rgba(97, 218, 251, 0.05);
+        background: rgba(97, 218, 251, 0.03);
       }
+
       .typeahead-item.recent:hover,
       .typeahead-item.recent.active {
-        background: rgba(97, 218, 251, 0.12);
+        background: rgba(97, 218, 251, 0.08);
       }
+
       .typeahead-item .remove-btn {
         opacity: 0;
         background: none;
         border: none;
-        color: #888;
+        color: #666;
         font-size: 14px;
         cursor: pointer;
         padding: 2px 6px;
         margin-left: 8px;
-        border-radius: 3px;
+        border-radius: 4px;
         transition: opacity 0.15s, color 0.15s, background 0.15s;
       }
+
       .typeahead-item:hover .remove-btn,
       .typeahead-item.active .remove-btn {
         opacity: 1;
       }
+
       .typeahead-item .remove-btn:hover {
         color: #e06c75;
         background: rgba(224, 108, 117, 0.15);
       }
+
       .typeahead-item .recent-icon {
-        color: #888;
+        color: #666;
         margin-right: 8px;
         font-size: 0.9em;
       }
+
       .typeahead-clear-all {
-        padding: 6px 10px;
+        padding: 8px 14px;
         font-size: 0.8em;
-        color: #888;
+        color: #666;
         text-align: center;
         cursor: pointer;
         border-top: 1px solid #333;
         transition: background 0.15s, color 0.15s;
       }
+
       .typeahead-clear-all:hover {
-        background: rgba(224, 108, 117, 0.1);
+        background: rgba(224, 108, 117, 0.08);
         color: #e06c75;
       }
 
@@ -325,9 +377,10 @@
         pointer-events: auto;
         min-width: 320px;
         max-width: 420px;
-        background: linear-gradient(135deg, #2d2d2d 0%, #1e1e1e 100%);
-        border-radius: 10px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+        background: #1a1a1a;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(255, 255, 255, 0.05);
         overflow: hidden;
         transform: translateX(100%);
         opacity: 0;
@@ -365,7 +418,8 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 14px;
+        padding: 14px 16px;
+        background: #222;
         border-bottom: 1px solid #333;
       }
 
@@ -374,8 +428,8 @@
         align-items: center;
         gap: 10px;
         font-weight: 600;
-        color: #fff;
-        font-size: 0.95em;
+        color: #e0e0e0;
+        font-size: 0.9em;
       }
 
       .toast-status-icon {
@@ -432,28 +486,28 @@
       }
 
       .toast-body {
-        padding: 12px 14px;
+        padding: 14px 16px;
       }
 
       .toast-message {
-        color: #aaa;
+        color: #999;
         font-size: 0.85em;
-        line-height: 1.4;
+        line-height: 1.5;
         margin-bottom: 10px;
       }
 
       .toast-progress-container {
-        background: #1a1a1a;
-        border-radius: 4px;
-        height: 4px;
+        background: #252525;
+        border-radius: 3px;
+        height: 3px;
         overflow: hidden;
         margin-bottom: 8px;
       }
 
       .toast-progress-bar {
         height: 100%;
-        background: linear-gradient(90deg, #61dafb, #4fa8d8);
-        border-radius: 4px;
+        background: #61dafb;
+        border-radius: 3px;
         transition: width 0.3s ease;
         width: 0%;
       }
@@ -464,12 +518,12 @@
       }
 
       .toast-progress-bar.complete {
-        background: linear-gradient(90deg, #4ade80, #22c55e);
+        background: #4ade80;
         width: 100%;
       }
 
       .toast-progress-bar.error {
-        background: linear-gradient(90deg, #f87171, #ef4444);
+        background: #f87171;
         width: 100%;
       }
 
@@ -486,9 +540,9 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 14px;
-        background: rgba(0, 0, 0, 0.2);
-        border-top: 1px solid #333;
+        padding: 10px 16px;
+        background: #1a1a1a;
+        border-top: 1px solid #2a2a2a;
       }
 
       .toast-link {
@@ -500,12 +554,11 @@
       }
 
       .toast-link:hover {
-        color: #8ae8ff;
-        text-decoration: underline;
+        color: #7de4ff;
       }
 
       .toast-time {
-        color: #666;
+        color: #555;
         font-size: 0.75em;
       }
 
@@ -526,25 +579,125 @@
 
       /* View toggle */
       .view-toggle {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        margin-top: 10px;
+        display: inline-flex;
+        background: #1a1a1a;
+        border-radius: 6px;
+        padding: 3px;
+        gap: 2px;
       }
+
       .toggle-btn {
-        padding: 6px 12px;
-        background-color: #333;
-        border: 1px solid #555;
-        color: #d4d4d4;
+        padding: 6px 14px;
+        background-color: transparent;
+        border: none;
+        color: #888;
         border-radius: 4px;
         cursor: pointer;
-        font-family: monospace;
-        font-size: 0.9em;
+        font-family: inherit;
+        font-size: 0.85em;
+        font-weight: 500;
+        transition: all 0.15s ease;
       }
+
+      .toggle-btn:hover {
+        color: #b0b0b0;
+        background-color: rgba(255, 255, 255, 0.05);
+      }
+
       .toggle-btn.active {
+        background-color: #333;
+        color: #e0e0e0;
+      }
+
+      /* Search box */
+      .search-container {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 0;
+      }
+
+      .search-form {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .search-input {
+        flex: 1;
+        padding: 10px 14px;
+        background-color: #252525;
+        border: 1px solid #444;
+        color: #e0e0e0;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 0.9em;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .search-input::placeholder {
+        color: #666;
+      }
+
+      .search-input:focus {
+        border-color: #61dafb;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(97, 218, 251, 0.1);
+      }
+
+      .search-btn {
+        padding: 10px 20px;
         background-color: #61dafb;
         color: #000;
-        border-color: #61dafb;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.9em;
+        transition: all 0.15s ease;
+      }
+
+      .search-btn:hover {
+        background-color: #7de4ff;
+      }
+
+      .clear-btn {
+        padding: 10px 16px;
+        background-color: transparent;
+        color: #888;
+        border: 1px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9em;
+        transition: all 0.15s ease;
+      }
+
+      .clear-btn:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: #aaa;
+        border-color: #555;
+      }
+
+      .search-examples {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #333;
+        font-size: 0.8em;
+        color: #777;
+        line-height: 1.6;
+      }
+
+      .search-examples strong {
+        color: #999;
+      }
+
+      .search-examples code {
+        background-color: #333;
+        padding: 2px 6px;
+        border-radius: 3px;
+        color: #61dafb;
+        font-size: 0.95em;
       }
 
       /* Grid view */
@@ -552,7 +705,9 @@
         display: grid;
         grid-template-columns: repeat(5, 1fr);
         gap: 10px;
+        margin-top: 16px;
       }
+
       .grid-item {
         position: relative;
         width: 100%;
@@ -635,61 +790,145 @@
         cursor: pointer;
       }
 
+      /* Page Header */
+      .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid #333;
+      }
+
+      .page-header h1 {
+        margin: 0;
+        font-size: 1.5em;
+        font-weight: 600;
+        color: #e0e0e0;
+      }
+
+      .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      /* Sticky Selection Container */
+      .selection-container {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        margin-top: 16px;
+      }
+
+      .selection-bar {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+      }
+
+      .selection-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+
+      .selection-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-left: auto;
+      }
+
+      .selection-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #b0b0b0;
+        font-size: 0.875em;
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.15s ease;
+      }
+
+      .selection-label:hover {
+        color: #e0e0e0;
+      }
+
+      .selection-label.disabled {
+        color: #555;
+        cursor: not-allowed;
+      }
+
+      .selection-label.disabled:hover {
+        color: #555;
+      }
+
+      .selection-label input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: inherit;
+        accent-color: #61dafb;
+      }
+
+      .selection-count {
+        color: #666;
+        font-size: 0.875em;
+      }
+
+      .selection-count.active {
+        color: #61dafb;
+        font-weight: 500;
+      }
+
       /* Bulk Actions Panel */
       .bulk-actions {
-        position: sticky;
-        top: 80px;
-        z-index: 5;
-        background: linear-gradient(135deg, #2d2d2d, #1e1e1e);
-        border: 2px solid #61dafb;
-        border-radius: 8px;
-        padding: 15px;
-        margin: 20px 0;
+        padding: 12px 16px;
+        padding-top: 0;
         display: none;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
       }
 
       .bulk-actions.show {
         display: block;
       }
 
-      .bulk-actions-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-      }
-
-      .bulk-actions-title {
-        color: #61dafb;
-        font-weight: bold;
-        font-size: 1.1em;
-      }
-
-      .bulk-actions-count {
-        background-color: #61dafb;
-        color: #000;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 0.9em;
-        font-weight: bold;
+      .bulk-actions-divider {
+        height: 1px;
+        background: #333;
+        margin: 0 0 12px 0;
       }
 
       .bulk-actions-form {
         display: flex;
-        gap: 10px;
+        gap: 12px;
         align-items: center;
         flex-wrap: wrap;
       }
 
       .bulk-actions-form select {
         padding: 8px 12px;
-        background-color: #1e1e1e;
-        border: 1px solid #555;
+        background-color: #252525;
+        border: 1px solid #444;
         color: #d4d4d4;
-        border-radius: 4px;
-        font-family: monospace;
-        min-width: 150px;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 0.9em;
+        min-width: 160px;
+        transition: border-color 0.15s ease;
+      }
+
+      .bulk-actions-form select:hover {
+        border-color: #555;
+      }
+
+      .bulk-actions-form select:focus {
+        border-color: #61dafb;
+        outline: none;
       }
 
       .bulk-actions-form button {
@@ -697,29 +936,33 @@
         background-color: #61dafb;
         color: #000;
         border: none;
-        border-radius: 4px;
+        border-radius: 6px;
         cursor: pointer;
-        font-weight: bold;
-        transition: background-color 0.2s ease;
+        font-weight: 600;
+        font-size: 0.9em;
+        transition: all 0.15s ease;
       }
 
       .bulk-actions-form button:hover {
-        background-color: #4fa8d8;
+        background-color: #7de4ff;
       }
 
       .bulk-actions-form button:disabled {
-        background-color: #666;
-        color: #999;
+        background-color: #444;
+        color: #888;
         cursor: not-allowed;
       }
 
       .bulk-clear-btn {
-        background-color: #666 !important;
-        color: #fff !important;
+        background-color: transparent !important;
+        color: #888 !important;
+        border: 1px solid #444 !important;
       }
 
       .bulk-clear-btn:hover {
-        background-color: #777 !important;
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        color: #aaa !important;
+        border-color: #555 !important;
       }
 
       /* Media Preview Tooltip */
@@ -811,17 +1054,42 @@
           padding: 12px;
         }
 
-        h1 {
-          font-size: 1.4em;
+        .page-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
         }
 
-        .view-toggle {
-          flex-wrap: wrap;
-          row-gap: 8px;
+        .page-header h1 {
+          font-size: 1.25em;
         }
 
-        .toggle-btn {
-          padding: 8px 14px;
+        .search-container {
+          padding: 12px;
+        }
+
+        .search-form {
+          flex-direction: column;
+        }
+
+        .search-input,
+        .search-btn,
+        .clear-btn {
+          width: 100%;
+        }
+
+        .search-examples {
+          display: none;
+        }
+
+        .selection-bar {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .selection-bar-right {
+          margin-left: 0;
         }
 
         .media-header,
@@ -931,115 +1199,32 @@
   </head>
   <body>
     <div class="media-container">
-      <h1>Media Browser</h1>
+      <div class="page-header">
+        <h1>Media Browser</h1>
+        <div class="header-controls">
+          <div class="view-toggle">
+            <button id="view-table" type="button" class="toggle-btn">
+              Table
+            </button>
+            <button id="view-grid" type="button" class="toggle-btn">
+              Grid
+            </button>
+          </div>
+        </div>
+      </div>
+
       {{ template "topnav" . }}
 
-      <div class="view-toggle" style="margin-bottom: 10px">
-        <span style="color: #aaa; font-size: 0.9em">View:</span>
-        <button id="view-table" type="button" class="toggle-btn">Table</button>
-        <button id="view-grid" type="button" class="toggle-btn">Grid</button>
-      </div>
-
-      <div
-        id="grid-select-bar"
-        class="view-toggle"
-        style="display: none; margin-bottom: 10px"
-      >
-        <label
-          style="
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            color: #aaa;
-            font-size: 0.9em;
-            cursor: pointer;
-          "
-        >
-          <input
-            type="checkbox"
-            id="grid-select-all"
-            onchange="toggleSelectAll(this)"
-          />
-          Select all
-        </label>
-        <label
-          style="
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            color: #aaa;
-            font-size: 0.9em;
-            cursor: pointer;
-          "
-        >
-          <input type="checkbox" class="apply-to-query" />
-          Apply to all items matching current search
-        </label>
-      </div>
-
-      <!-- Global Select/Apply bar for table view -->
-      <div id="table-apply-bar" class="view-toggle" style="margin-bottom: 10px">
-        <label
-          style="
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            color: #aaa;
-            font-size: 0.9em;
-            cursor: pointer;
-          "
-        >
-          <input
-            type="checkbox"
-            id="table-select-all"
-            onchange="toggleSelectAll(this)"
-          />
-          Select all
-        </label>
-        <label
-          style="
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            color: #aaa;
-            font-size: 0.9em;
-            cursor: pointer;
-          "
-        >
-          <input type="checkbox" class="apply-to-query" />
-          Apply to all items matching current search
-        </label>
-      </div>
-
-      <div
-        style="
-          margin: 20px 0;
-          padding: 15px;
-          background-color: #2d2d2d;
-          border-radius: 4px;
-        "
-      >
-        <form
-          id="search-form"
-          style="display: flex; gap: 10px; align-items: center"
-        >
+      <div class="search-container">
+        <form id="search-form" class="search-form">
           <div class="typeahead-wrap">
             <input
               type="text"
               id="search-input"
-              placeholder='Search query (e.g., tag:"landscape" AND size:>1000000)'
+              class="search-input"
+              placeholder='Search (e.g., tag:"landscape" AND size:>1000000)'
               value="{{.SearchQuery}}"
               autocomplete="off"
-              style="
-                flex: 1;
-                width: 100%;
-                padding: 8px 12px;
-                background-color: #1e1e1e;
-                border: 1px solid #555;
-                color: #d4d4d4;
-                border-radius: 4px;
-                font-family: monospace;
-              "
             />
             <div
               id="typeahead-dropdown"
@@ -1047,293 +1232,282 @@
               style="display: none"
             ></div>
           </div>
-          <button
-            type="submit"
-            style="
-              padding: 8px 16px;
-              background-color: #61dafb;
-              color: #000;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-              font-weight: bold;
-            "
-          >
-            Search
-          </button>
-          <button
-            type="button"
-            id="clear-search"
-            style="
-              padding: 8px 16px;
-              background-color: #666;
-              color: #fff;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-            "
-          >
+          <button type="submit" class="search-btn">Search</button>
+          <button type="button" id="clear-search" class="clear-btn">
             Clear
           </button>
         </form>
 
-        <div style="margin-top: 10px; font-size: 0.9em; color: #aaa">
-          <strong>Search Examples:</strong><br />
-          • <code>path:"*.mp4"</code> - Files with .mp4 extension<br />
-          • <code>size:>1000000</code> - Files larger than 1MB<br />
-          • <code>description:"cat" AND size:<5000000</code> - Cat descriptions
-          under 5MB<br />
-          • <code>tag:"landscape"</code> - Media tagged as landscape<br />
-          • <code>category:"nature" AND tag:"sunset"</code> - Nature category
-          with sunset tag<br />
-          • <code>NOT tag:"portrait"</code> - Media without portrait tag<br />
-          • <code>tags:none</code> - Media with no tags at all<br />
-          • <code>pathdir:"/some/directory/"</code> - In directory (no
-          subdirs)<br />
-          • <code>tag:"*flower*" OR category:"garden"</code> - Flower tags or
-          garden category<br />
-          • <code>tagcount:>2</code> - Media with more than 2 tags<br />
-          • <code>NOT hash:""</code> - Files with hash values<br />
-          • <code>path:"*video*" OR path:"*movie*"</code> - Paths containing
-          "video" or "movie"
+        <div class="search-examples">
+          <strong>Examples:</strong>
+          <code>path:"*.mp4"</code> • <code>size:>1000000</code> •
+          <code>tag:"landscape"</code> • <code>tags:none</code> •
+          <code>NOT tag:"portrait"</code> • <code>pathdir:"/directory/"</code> •
+          <code>tagcount:>2</code>
         </div>
       </div>
 
-      <!-- Bulk Actions Panel -->
-      <div id="bulk-actions" class="bulk-actions">
-        <div class="bulk-actions-header">
-          <div class="bulk-actions-title">Bulk Actions</div>
-          <div class="bulk-actions-count" id="selected-count">0 selected</div>
+      <!-- Sticky Selection Container -->
+      <div id="selection-container" class="selection-container">
+        <div class="selection-bar">
+          <div class="selection-bar-left">
+            <label class="selection-label">
+              <input
+                type="checkbox"
+                id="select-all-unified"
+                onchange="toggleSelectAll(this)"
+              />
+              Select all visible
+            </label>
+            <label id="apply-to-query-label" class="selection-label disabled">
+              <input
+                type="checkbox"
+                class="apply-to-query"
+                id="apply-to-query-checkbox"
+                disabled
+              />
+              Include all matching query
+            </label>
+          </div>
+          <div class="selection-bar-right">
+            <span id="selection-count" class="selection-count">0 items</span>
+          </div>
         </div>
-        <form class="bulk-actions-form" id="bulk-actions-form">
-          <select id="task-select" required>
-            <option value="">Select task...</option>
-            <option value="remove">Remove from Database</option>
-            <option value="move">Move Files</option>
-            <option value="metadata">Generate Metadata</option>
-            <option value="autotag">Auto Tag (ONNX)</option>
-          </select>
-          <div
-            id="metadata-options"
-            style="
-              display: none;
-              flex-direction: column;
-              gap: 10px;
-              margin-top: 10px;
-            "
-          >
-            <div style="color: #aaa; font-size: 0.9em; font-weight: bold">
-              Metadata Types:
-            </div>
+
+        <!-- Bulk Actions Panel -->
+        <div id="bulk-actions" class="bulk-actions">
+          <div class="bulk-actions-divider"></div>
+          <form class="bulk-actions-form" id="bulk-actions-form">
+            <select id="task-select" required>
+              <option value="">Select task...</option>
+              <option value="remove">Remove from Database</option>
+              <option value="move">Move Files</option>
+              <option value="metadata">Generate Metadata</option>
+              <option value="autotag">Auto Tag (ONNX)</option>
+            </select>
             <div
+              id="metadata-options"
               style="
-                display: flex;
-                gap: 15px;
-                flex-wrap: wrap;
-                margin-left: 10px;
-              "
-            >
-              <label style="color: #aaa; font-size: 0.9em">
-                <input
-                  type="checkbox"
-                  id="metadata-description"
-                  style="margin-right: 5px"
-                  checked
-                />
-                Description
-              </label>
-              <label style="color: #aaa; font-size: 0.9em">
-                <input
-                  type="checkbox"
-                  id="metadata-transcript"
-                  style="margin-right: 5px"
-                />
-                Transcript
-              </label>
-              <label style="color: #aaa; font-size: 0.9em">
-                <input
-                  type="checkbox"
-                  id="metadata-hash"
-                  style="margin-right: 5px"
-                  checked
-                />
-                Hash
-              </label>
-              <label style="color: #aaa; font-size: 0.9em">
-                <input
-                  type="checkbox"
-                  id="metadata-dimensions"
-                  style="margin-right: 5px"
-                  checked
-                />
-                Dimensions
-              </label>
-              <label style="color: #aaa; font-size: 0.9em">
-                <input
-                  type="checkbox"
-                  id="metadata-autotag"
-                  style="margin-right: 5px"
-                />
-                Auto Tag
-              </label>
-            </div>
-            <div
-              style="
-                display: flex;
+                display: none;
+                flex-direction: column;
                 gap: 10px;
-                align-items: center;
-                flex-wrap: wrap;
+                margin-top: 10px;
               "
             >
-              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
-                >Apply Scope:</label
-              >
-              <select
-                id="apply-scope-select"
+              <div style="color: #aaa; font-size: 0.9em; font-weight: bold">
+                Metadata Types:
+              </div>
+              <div
                 style="
-                  padding: 6px 10px;
-                  background-color: #1e1e1e;
-                  border: 1px solid #555;
-                  color: #d4d4d4;
-                  border-radius: 4px;
-                  font-family: monospace;
-                  min-width: 120px;
+                  display: flex;
+                  gap: 15px;
+                  flex-wrap: wrap;
+                  margin-left: 10px;
                 "
               >
-                <option value="all">All selected files</option>
-                <option value="new">New files only</option>
-              </select>
-            </div>
-            <div
-              style="
-                display: flex;
-                gap: 10px;
-                align-items: center;
-                flex-wrap: wrap;
-              "
-            >
-              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
-                >AI Model:</label
-              >
-              <input
-                type="text"
-                id="ollama-model"
-                value="{{.DefaultOllamaModel}}"
-                placeholder="e.g., llama3.2-vision"
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="metadata-description"
+                    style="margin-right: 5px"
+                    checked
+                  />
+                  Description
+                </label>
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="metadata-transcript"
+                    style="margin-right: 5px"
+                  />
+                  Transcript
+                </label>
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="metadata-hash"
+                    style="margin-right: 5px"
+                    checked
+                  />
+                  Hash
+                </label>
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="metadata-dimensions"
+                    style="margin-right: 5px"
+                    checked
+                  />
+                  Dimensions
+                </label>
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="metadata-autotag"
+                    style="margin-right: 5px"
+                  />
+                  Auto Tag
+                </label>
+              </div>
+              <div
                 style="
-                  padding: 6px 10px;
-                  background-color: #1e1e1e;
-                  border: 1px solid #555;
-                  color: #d4d4d4;
-                  border-radius: 4px;
-                  font-family: monospace;
-                  flex: 1;
-                  min-width: 200px;
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
                 "
-              />
-            </div>
-            <div
-              style="
-                display: flex;
-                gap: 10px;
-                align-items: center;
-                flex-wrap: wrap;
-              "
-            >
-              <label style="color: #aaa; font-size: 0.9em">
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >Apply Scope:</label
+                >
+                <select
+                  id="apply-scope-select"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    min-width: 120px;
+                  "
+                >
+                  <option value="all">All selected files</option>
+                  <option value="new">New files only</option>
+                </select>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >AI Model:</label
+                >
                 <input
-                  type="checkbox"
-                  id="overwrite-checkbox"
-                  style="margin-right: 5px"
+                  type="text"
+                  id="ollama-model"
+                  value="{{.DefaultOllamaModel}}"
+                  placeholder="e.g., llama3.2-vision"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
                 />
-                Overwrite existing metadata
-              </label>
-            </div>
-            <div style="font-size: 0.8em; color: #888; line-height: 1.3">
-              <strong>Note:</strong> Description generation requires Ollama with
-              a vision model. Transcript generation requires faster-whisper-xxl
-              for video files. Hash and dimensions work for all media types.
-            </div>
-          </div>
-          <div
-            id="move-options"
-            style="
-              display: none;
-              flex-direction: column;
-              gap: 10px;
-              margin-top: 10px;
-            "
-          >
-            <div
-              style="
-                display: flex;
-                gap: 10px;
-                align-items: center;
-                flex-wrap: wrap;
-              "
-            >
-              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
-                >Target Directory:</label
-              >
-              <input
-                type="text"
-                id="target-directory-path"
-                placeholder="e.g., /new/base/directory/"
+              </div>
+              <div
                 style="
-                  padding: 6px 10px;
-                  background-color: #1e1e1e;
-                  border: 1px solid #555;
-                  color: #d4d4d4;
-                  border-radius: 4px;
-                  font-family: monospace;
-                  flex: 1;
-                  min-width: 200px;
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
                 "
-              />
+              >
+                <label style="color: #aaa; font-size: 0.9em">
+                  <input
+                    type="checkbox"
+                    id="overwrite-checkbox"
+                    style="margin-right: 5px"
+                  />
+                  Overwrite existing metadata
+                </label>
+              </div>
+              <div style="font-size: 0.8em; color: #888; line-height: 1.3">
+                <strong>Note:</strong> Description generation requires Ollama
+                with a vision model. Transcript generation requires
+                faster-whisper-xxl for video files. Hash and dimensions work for
+                all media types.
+              </div>
             </div>
             <div
+              id="move-options"
               style="
-                display: flex;
+                display: none;
+                flex-direction: column;
                 gap: 10px;
-                align-items: center;
-                flex-wrap: wrap;
+                margin-top: 10px;
               "
             >
-              <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
-                >Path Prefix to Remove:</label
-              >
-              <input
-                type="text"
-                id="path-prefix"
-                placeholder="e.g., /old/base/path/"
+              <div
                 style="
-                  padding: 6px 10px;
-                  background-color: #1e1e1e;
-                  border: 1px solid #555;
-                  color: #d4d4d4;
-                  border-radius: 4px;
-                  font-family: monospace;
-                  flex: 1;
-                  min-width: 200px;
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
                 "
-              />
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >Target Directory:</label
+                >
+                <input
+                  type="text"
+                  id="target-directory-path"
+                  placeholder="e.g., /new/base/directory/"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >Path Prefix to Remove:</label
+                >
+                <input
+                  type="text"
+                  id="path-prefix"
+                  placeholder="e.g., /old/base/path/"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div style="font-size: 0.8em; color: #888; line-height: 1.3">
+                <strong>Note:</strong> Files will be moved from their current
+                location to the target directory. The path prefix will be
+                removed from each file's current path before appending to the
+                target directory.
+              </div>
             </div>
-            <div style="font-size: 0.8em; color: #888; line-height: 1.3">
-              <strong>Note:</strong> Files will be moved from their current
-              location to the target directory. The path prefix will be removed
-              from each file's current path before appending to the target
-              directory.
-            </div>
-          </div>
-          <button type="submit" id="execute-button">Execute</button>
-          <button
-            type="button"
-            class="bulk-clear-btn"
-            onclick="clearSelection()"
-          >
-            Clear Selection
-          </button>
-        </form>
+            <button type="submit" id="execute-button">Execute</button>
+            <button
+              type="button"
+              class="bulk-clear-btn"
+              onclick="clearSelection()"
+            >
+              Clear Selection
+            </button>
+          </form>
+        </div>
       </div>
 
       <div id="media-table" class="media-table">
@@ -1475,45 +1649,92 @@
           }
         });
 
-        // Update bulk actions panel
-        const count = selectedItems.size;
-        document.getElementById(
-          "selected-count"
-        ).textContent = `${count} selected`;
-        const bulkActions = document.getElementById("bulk-actions");
-        if (count > 0) {
-          bulkActions.classList.add("show");
-        } else {
-          bulkActions.classList.remove("show");
-        }
-
-        // Update select-all checkbox state (both table and grid)
+        // Update select-all checkbox state
         const uniqueTotal = Array.from(allCheckboxes).reduce((set, cb) => {
           set.add(cb.value);
           return set;
         }, new Set()).size;
 
-        const tableSelectAll = document.getElementById("select-all");
-        const gridSelectAll = document.getElementById("grid-select-all");
-        const tableTopSelectAll = document.getElementById("table-select-all");
+        const count = selectedItems.size;
+        const allSelected = count > 0 && count === uniqueTotal;
 
-        const setSelectAllState = (el) => {
+        // Update all select-all checkboxes (unified bar + table header)
+        const selectAllCheckboxes = [
+          document.getElementById("select-all-unified"),
+          document.getElementById("select-all"),
+        ];
+
+        selectAllCheckboxes.forEach((el) => {
           if (!el) return;
           if (count === 0) {
             el.indeterminate = false;
             el.checked = false;
-          } else if (count === uniqueTotal) {
+          } else if (allSelected) {
             el.indeterminate = false;
             el.checked = true;
           } else {
             el.indeterminate = true;
             el.checked = false;
           }
-        };
+        });
 
-        setSelectAllState(tableSelectAll);
-        setSelectAllState(gridSelectAll);
-        setSelectAllState(tableTopSelectAll);
+        // Enable/disable apply-to-query checkbox based on select-all state
+        updateApplyToQueryState(allSelected);
+
+        // Update selection counts
+        updateBulkActionsCount();
+
+        // Show/hide bulk actions panel
+        const bulkActions = document.getElementById("bulk-actions");
+        if (count > 0 || isApplyToQueryEnabled()) {
+          bulkActions.classList.add("show");
+        } else {
+          bulkActions.classList.remove("show");
+        }
+      }
+
+      function updateApplyToQueryState(allSelected) {
+        const applyCheckbox = document.getElementById(
+          "apply-to-query-checkbox"
+        );
+        const applyLabel = document.getElementById("apply-to-query-label");
+
+        if (applyCheckbox) {
+          if (allSelected && currentSearchQuery) {
+            applyCheckbox.disabled = false;
+          } else {
+            applyCheckbox.disabled = true;
+            applyCheckbox.checked = false; // Uncheck if disabled
+          }
+        }
+
+        // Update label styling
+        if (applyLabel) {
+          if (allSelected && currentSearchQuery) {
+            applyLabel.classList.remove("disabled");
+          } else {
+            applyLabel.classList.add("disabled");
+          }
+        }
+      }
+
+      function updateBulkActionsCount() {
+        const selectionCountEl = document.getElementById("selection-count");
+        const count = selectedItems.size;
+
+        if (isApplyToQueryEnabled() && currentSearchQuery) {
+          if (selectionCountEl) {
+            selectionCountEl.textContent = "All matching query";
+            selectionCountEl.classList.add("active");
+          }
+        } else {
+          const text =
+            count === 1 ? "1 item selected" : `${count} items selected`;
+          if (selectionCountEl) {
+            selectionCountEl.textContent = count > 0 ? text : "0 items";
+            selectionCountEl.classList.toggle("active", count > 0);
+          }
+        }
       }
 
       function toggleSelectAll(checkbox) {
@@ -1526,7 +1747,7 @@
 
       function clearSelection() {
         const checkboxes = document.querySelectorAll(
-          ".media-checkbox, #select-all, #grid-select-all, #table-select-all"
+          ".media-checkbox, #select-all, #select-all-unified, .apply-to-query"
         );
         checkboxes.forEach((cb) => {
           cb.checked = false;
@@ -2200,10 +2421,11 @@
         gridBtn.addEventListener("click", () => setViewMode("grid"));
         initViewMode();
 
-        // Keep global apply-to-query checkboxes in sync
+        // Keep global apply-to-query checkboxes in sync and update count display
         document.querySelectorAll(".apply-to-query").forEach((cb) => {
           cb.addEventListener("change", function () {
             setApplyToQueryEnabled(this.checked);
+            updateBulkActionsCount();
           });
         });
 
@@ -2440,23 +2662,17 @@
         const gridEl = document.getElementById("media-grid");
         const tableBtn = document.getElementById("view-table");
         const gridBtn = document.getElementById("view-grid");
-        const gridSelectBar = document.getElementById("grid-select-bar");
-        const tableApplyBar = document.getElementById("table-apply-bar");
         if (currentViewMode === "grid") {
           tableEl.style.display = "none";
           gridEl.style.display = "grid";
           tableBtn.classList.remove("active");
           gridBtn.classList.add("active");
-          if (gridSelectBar) gridSelectBar.style.display = "flex";
-          if (tableApplyBar) tableApplyBar.style.display = "none";
           ensureGridInitialized();
         } else {
           tableEl.style.display = "block";
           gridEl.style.display = "none";
           gridBtn.classList.remove("active");
           tableBtn.classList.add("active");
-          if (gridSelectBar) gridSelectBar.style.display = "none";
-          if (tableApplyBar) tableApplyBar.style.display = "flex";
         }
       }
 
@@ -3315,11 +3531,12 @@
           Array.from(dropdown.querySelectorAll(".typeahead-item")).forEach(
             (el) => {
               el.addEventListener("mousedown", (e) => {
-                // Check if clicking the remove button
-                if (e.target.classList.contains("remove-btn")) {
+                // Check if clicking the remove button (use closest for robustness)
+                const removeBtn = e.target.closest(".remove-btn");
+                if (removeBtn) {
                   e.preventDefault();
                   e.stopPropagation();
-                  const queryToRemove = e.target.getAttribute("data-remove");
+                  const queryToRemove = removeBtn.getAttribute("data-remove");
                   if (queryToRemove) {
                     removeRecentSearch(queryToRemove);
                     // Refresh the dropdown
