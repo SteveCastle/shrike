@@ -1999,8 +1999,13 @@
       // Media preview functionality
       let previewTimeout;
       let hideTimeout;
+      let loadingTimeoutId = null;
+      let currentPreviewId = 0; // Track which preview request is active
+      let currentMediaElement = null; // Track the current media element being loaded
       const previewDelay = 500; // ms
       const hideDelay = 300; // ms
+      const imageLoadTimeout = 120000; // 120 seconds for images (large files from localhost)
+      const videoLoadTimeout = 180000; // 180 seconds for videos (large files from localhost)
 
       function isImageFile(path) {
         if (!path || typeof path !== "string") return false;
@@ -2084,6 +2089,12 @@
       function showMediaPreview(event, mediaPath) {
         clearTimeout(hideTimeout);
 
+        // Cancel any pending loading timeout from previous preview
+        if (loadingTimeoutId) {
+          clearTimeout(loadingTimeoutId);
+          loadingTimeoutId = null;
+        }
+
         // Validate media path
         if (
           !mediaPath ||
@@ -2106,6 +2117,22 @@
         const footer = document.getElementById("preview-footer");
 
         previewTimeout = setTimeout(() => {
+          // Increment preview ID to track this request
+          currentPreviewId++;
+          const thisPreviewId = currentPreviewId;
+
+          // Clean up previous media element if any
+          if (currentMediaElement) {
+            if (currentMediaElement.tagName === "VIDEO") {
+              currentMediaElement.pause();
+              currentMediaElement.src = "";
+              currentMediaElement.load();
+            } else if (currentMediaElement.tagName === "IMG") {
+              currentMediaElement.src = "";
+            }
+            currentMediaElement = null;
+          }
+
           // Position the preview near the mouse
           const rect = event.target.getBoundingClientRect();
 
@@ -2148,30 +2175,51 @@
 
           if (isImageFile(mediaPath)) {
             const img = new Image();
+            currentMediaElement = img;
+
             img.onload = function () {
+              // Only update if this is still the active preview
+              if (thisPreviewId !== currentPreviewId) return;
+              if (loadingTimeoutId) {
+                clearTimeout(loadingTimeoutId);
+                loadingTimeoutId = null;
+              }
               content.innerHTML = "";
               content.appendChild(img);
               footer.textContent = `Image • ${img.naturalWidth}×${img.naturalHeight}`;
             };
-            img.onerror = function () {
+
+            img.onerror = function (e) {
+              // Only show error if this is still the active preview
+              if (thisPreviewId !== currentPreviewId) return;
+              if (loadingTimeoutId) {
+                clearTimeout(loadingTimeoutId);
+                loadingTimeoutId = null;
+              }
+              // Check if this was an intentional abort (src set to empty)
+              if (img.src === "" || img.src === window.location.href) return;
               content.innerHTML =
                 '<div class="media-preview-error">Failed to load image<br>Check if file exists and is accessible</div>';
               footer.textContent = "Error loading media";
             };
 
-            // Set a timeout for loading to prevent hanging
-            setTimeout(() => {
-              if (!img.complete) {
+            // Set a timeout for loading - generous for large local files
+            loadingTimeoutId = setTimeout(() => {
+              // Only timeout if this is still the active preview and not loaded
+              if (thisPreviewId !== currentPreviewId) return;
+              if (!img.complete && img.naturalWidth === 0) {
                 img.src = ""; // Cancel loading
                 content.innerHTML =
                   '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
                 footer.textContent = "Loading timeout";
               }
-            }, 10000); // 10 second timeout
+              loadingTimeoutId = null;
+            }, imageLoadTimeout);
 
             img.src = mediaUrl;
           } else if (isVideoFile(mediaPath)) {
             const video = document.createElement("video");
+            currentMediaElement = video;
             video.muted = true;
             video.autoplay = true;
             video.loop = true;
@@ -2179,27 +2227,63 @@
             video.preload = "metadata";
 
             video.onloadedmetadata = function () {
+              // Only update if this is still the active preview
+              if (thisPreviewId !== currentPreviewId) return;
+              if (loadingTimeoutId) {
+                clearTimeout(loadingTimeoutId);
+                loadingTimeoutId = null;
+              }
               content.innerHTML = "";
               content.appendChild(video);
               const duration = Math.round(video.duration);
               footer.textContent = `Video • ${video.videoWidth}×${video.videoHeight} • ${duration}s`;
             };
 
-            video.onerror = function () {
+            // Also listen for canplay as a fallback (some videos load metadata slowly)
+            video.oncanplay = function () {
+              // Only update if this is still the active preview and not already shown
+              if (thisPreviewId !== currentPreviewId) return;
+              if (content.contains(video)) return; // Already appended
+              if (loadingTimeoutId) {
+                clearTimeout(loadingTimeoutId);
+                loadingTimeoutId = null;
+              }
+              content.innerHTML = "";
+              content.appendChild(video);
+              const duration = video.duration
+                ? Math.round(video.duration)
+                : "?";
+              footer.textContent = `Video • ${video.videoWidth}×${video.videoHeight} • ${duration}s`;
+            };
+
+            video.onerror = function (e) {
+              // Only show error if this is still the active preview
+              if (thisPreviewId !== currentPreviewId) return;
+              if (loadingTimeoutId) {
+                clearTimeout(loadingTimeoutId);
+                loadingTimeoutId = null;
+              }
+              // Check if this was an intentional abort (src set to empty)
+              if (video.src === "" || !video.src) return;
               content.innerHTML =
                 '<div class="media-preview-error">Failed to load video<br>Check if file exists and is accessible</div>';
               footer.textContent = "Error loading media";
             };
 
-            // Set a timeout for loading
-            setTimeout(() => {
-              if (video.readyState === 0) {
+            // Set a timeout for loading - very generous for large video files
+            loadingTimeoutId = setTimeout(() => {
+              // Only timeout if this is still the active preview
+              if (thisPreviewId !== currentPreviewId) return;
+              // readyState: 0=HAVE_NOTHING, 1=HAVE_METADATA, 2=HAVE_CURRENT_DATA, 3=HAVE_FUTURE_DATA, 4=HAVE_ENOUGH_DATA
+              // Only timeout if we haven't even started loading metadata
+              if (video.readyState < 1) {
                 video.src = ""; // Cancel loading
                 content.innerHTML =
                   '<div class="media-preview-error">Loading timeout<br>File may be too large or inaccessible</div>';
                 footer.textContent = "Loading timeout";
               }
-            }, 15000); // 15 second timeout for videos
+              loadingTimeoutId = null;
+            }, videoLoadTimeout);
 
             video.src = mediaUrl;
           }
@@ -2224,6 +2308,15 @@
       function hideMediaPreview() {
         clearTimeout(previewTimeout);
 
+        // Cancel any pending loading timeout immediately
+        if (loadingTimeoutId) {
+          clearTimeout(loadingTimeoutId);
+          loadingTimeoutId = null;
+        }
+
+        // Invalidate the current preview ID so any pending callbacks are ignored
+        currentPreviewId++;
+
         hideTimeout = setTimeout(() => {
           const preview = document.getElementById("media-preview");
           preview.classList.remove("show");
@@ -2241,6 +2334,8 @@
             images.forEach((img) => {
               img.src = ""; // Cancel any pending image loads
             });
+            // Clear the current media element reference
+            currentMediaElement = null;
           }, 300);
         }, hideDelay);
       }
@@ -2250,6 +2345,7 @@
         .getElementById("media-preview")
         .addEventListener("mouseenter", () => {
           clearTimeout(hideTimeout);
+          // Don't cancel the loading timeout here - let the media continue loading
         });
 
       document

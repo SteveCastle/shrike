@@ -979,7 +979,8 @@ func mediaFileHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		// Check file size (prevent serving extremely large files for preview)
-		const maxFileSize = 100 * 1024 * 1024 // 100MB limit
+		// For localhost serving of large videos, we allow up to 2GB
+		const maxFileSize = 2 * 1024 * 1024 * 1024 // 2GB limit
 		if fileInfo.Size() > maxFileSize {
 			http.Error(w, "File too large for preview", http.StatusRequestEntityTooLarge)
 			return

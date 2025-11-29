@@ -14,11 +14,12 @@
         --accent-orange: #f39c12;
         --accent-red: #e74c3c;
         --accent-blue: #3498db;
-        --bg-card: #232323;
-        --bg-elevated: #2a2a2a;
-        --border-subtle: #3a3a3a;
-        --text-primary: #e8e8e8;
-        --text-muted: #888;
+        --accent-purple: #a855f7;
+        --bg-card: #1c1c1e;
+        --bg-elevated: #2c2c2e;
+        --border-subtle: #38383a;
+        --text-primary: #f5f5f7;
+        --text-muted: #86868b;
       }
 
       .container {
@@ -35,27 +36,30 @@
 
       /* Active Jobs Panel */
       .active-jobs-panel {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border: 1px solid var(--border-subtle);
-        border-radius: 10px;
-        padding: 16px 20px;
+        background: linear-gradient(145deg, #1a1a2e 0%, #0f172a 100%);
+        border: 1px solid rgba(97, 218, 251, 0.15);
+        border-radius: 16px;
+        padding: 20px 24px;
         margin-top: 16px;
-        margin-bottom: 20px;
+        margin-bottom: 28px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
       }
       .active-jobs-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
       }
       .active-jobs-header h2 {
         margin: 0;
-        font-size: 1rem;
+        font-size: 0.95rem;
         font-weight: 600;
         color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
       }
       .active-jobs-header .pulse-dot {
         width: 8px;
@@ -63,9 +67,11 @@
         border-radius: 50%;
         background: var(--accent-green);
         animation: pulse 2s ease-in-out infinite;
+        box-shadow: 0 0 8px var(--accent-green);
       }
       .active-jobs-header .pulse-dot.idle {
         background: var(--text-muted);
+        box-shadow: none;
         animation: none;
       }
       @keyframes pulse {
@@ -80,50 +86,58 @@
         }
       }
       .jobs-count {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         color: var(--text-muted);
-        background: rgba(255, 255, 255, 0.05);
-        padding: 4px 10px;
-        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-weight: 500;
       }
       .active-jobs-list {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        max-height: 200px;
+        max-height: 220px;
         overflow-y: auto;
       }
       .active-jobs-empty {
         text-align: center;
         color: var(--text-muted);
-        font-size: 0.9rem;
-        padding: 20px;
+        font-size: 0.875rem;
+        padding: 24px;
         background: rgba(255, 255, 255, 0.02);
-        border-radius: 6px;
-        border: 1px dashed #3a3a3a;
+        border-radius: 10px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
       }
+      a.job-item,
       .job-item {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 10px 14px;
+        gap: 14px;
+        padding: 12px 16px;
         background: rgba(255, 255, 255, 0.03);
-        border-radius: 6px;
+        border-radius: 10px;
         border-left: 3px solid transparent;
         transition: all 0.2s ease;
+        text-decoration: none;
+        cursor: pointer;
+        color: inherit;
       }
       .job-item:hover {
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.07);
+        transform: translateX(2px);
       }
       .job-item.running {
         border-left-color: var(--accent-blue);
+        background: rgba(52, 152, 219, 0.05);
       }
       .job-item.pending {
         border-left-color: var(--accent-yellow);
+        background: rgba(241, 196, 15, 0.03);
       }
       .job-status-indicator {
-        width: 10px;
-        height: 10px;
+        width: 12px;
+        height: 12px;
         border-radius: 50%;
         flex-shrink: 0;
       }
@@ -135,6 +149,7 @@
       }
       .job-status-indicator.pending {
         background-color: var(--accent-yellow);
+        opacity: 0.8;
       }
       @keyframes rotate {
         0% {
@@ -150,85 +165,159 @@
       }
       .job-command {
         font-family: "JetBrains Mono", "Fira Code", monospace;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         color: var(--accent-cyan);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-weight: 500;
       }
       .job-detail {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: var(--text-muted);
-        margin-top: 2px;
+        margin-top: 3px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
       .job-actions {
         display: flex;
-        gap: 6px;
+        gap: 8px;
+        align-items: center;
+      }
+      .job-link-icon {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .job-item:hover .job-link-icon {
+        opacity: 1;
       }
       .job-actions button {
         font-size: 0.7rem;
-        padding: 4px 8px;
+        padding: 5px 10px;
         background: rgba(255, 255, 255, 0.05);
-        border: 1px solid #444;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         color: var(--text-muted);
-        border-radius: 4px;
+        border-radius: 6px;
         cursor: pointer;
         transition: all 0.15s ease;
+        font-weight: 500;
       }
       .job-actions button:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: var(--text-primary);
-        border-color: #666;
+        background: rgba(231, 76, 60, 0.15);
+        color: var(--accent-red);
+        border-color: rgba(231, 76, 60, 0.3);
       }
 
       /* Grid and Cards */
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(280px, 1fr));
-        gap: 16px;
+        gap: 20px;
       }
       .card {
         background: var(--bg-card);
         border: 1px solid var(--border-subtle);
-        border-radius: 10px;
-        padding: 20px;
+        border-radius: 16px;
+        padding: 24px;
         position: relative;
-        transition: all 0.2s ease;
+        transition: all 0.25s ease;
+        overflow: hidden;
+      }
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(
+          90deg,
+          var(--card-accent, var(--accent-cyan)),
+          transparent
+        );
+        opacity: 0.6;
       }
       .card:hover {
-        border-color: #4a4a4a;
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        border-color: rgba(255, 255, 255, 0.15);
+        transform: translateY(-3px);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
       }
-      .card h3 {
-        margin: 0 0 8px 0;
+      .card-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        margin-bottom: 12px;
+      }
+      .card-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        justify-content: center;
+        font-size: 1.3rem;
+        flex-shrink: 0;
+        background: linear-gradient(
+          135deg,
+          var(--card-accent, var(--accent-cyan)),
+          transparent
+        );
+        opacity: 0.9;
+      }
+      .card-titles {
+        flex: 1;
+        min-width: 0;
+      }
+      .card h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.3;
       }
       .card-description {
         color: var(--text-muted);
-        margin: 4px 0 16px 0;
-        font-size: 0.9rem;
-        line-height: 1.4;
+        margin: 6px 0 0 0;
+        font-size: 0.825rem;
+        line-height: 1.45;
+      }
+      .card-body {
+        margin-top: 16px;
+      }
+
+      /* Card accent colors */
+      .card--ingest {
+        --card-accent: #10b981;
+      }
+      .card--transcript {
+        --card-accent: #8b5cf6;
+      }
+      .card--description {
+        --card-accent: #f59e0b;
+      }
+      .card--autotag {
+        --card-accent: #3b82f6;
+      }
+      .card--cleanup {
+        --card-accent: #ef4444;
       }
 
       /* Card Status Badge */
       .card-status {
         position: absolute;
-        top: 12px;
-        right: 12px;
+        top: 16px;
+        right: 16px;
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        padding: 4px 10px;
+        padding: 5px 10px;
         border-radius: 20px;
         opacity: 0;
         transform: translateY(-4px);
@@ -239,14 +328,14 @@
         transform: translateY(0);
       }
       .card-status.running {
-        background: rgba(52, 152, 219, 0.15);
+        background: rgba(52, 152, 219, 0.2);
         color: var(--accent-blue);
-        border: 1px solid rgba(52, 152, 219, 0.3);
+        border: 1px solid rgba(52, 152, 219, 0.35);
       }
       .card-status.pending {
-        background: rgba(241, 196, 15, 0.15);
+        background: rgba(241, 196, 15, 0.2);
         color: var(--accent-yellow);
-        border: 1px solid rgba(241, 196, 15, 0.3);
+        border: 1px solid rgba(241, 196, 15, 0.35);
       }
       .card-status .status-dot {
         width: 6px;
@@ -265,28 +354,35 @@
 
       /* Buttons */
       .btn {
-        padding: 10px 16px;
-        border-radius: 6px;
+        padding: 11px 18px;
+        border-radius: 10px;
         cursor: pointer;
-        border: 1px solid #555;
-        background: #333;
-        color: #d4d4d4;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-primary);
         font-weight: 600;
-        font-size: 0.9rem;
-        transition: all 0.15s ease;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
       }
       .btn:hover {
-        background: #444;
-        border-color: #666;
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
       }
       .btn-primary {
-        background: linear-gradient(135deg, #61dafb 0%, #4fa8c9 100%);
-        color: #000;
+        background: linear-gradient(
+          135deg,
+          var(--card-accent, var(--accent-cyan)) 0%,
+          color-mix(in srgb, var(--card-accent, var(--accent-cyan)) 70%, #000)
+            100%
+        );
+        color: #fff;
         border-color: transparent;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
       }
       .btn-primary:hover {
-        background: linear-gradient(135deg, #72e2ff 0%, #61dafb 100%);
-        box-shadow: 0 4px 12px rgba(97, 218, 251, 0.3);
+        filter: brightness(1.15);
+        box-shadow: 0 4px 16px rgba(var(--card-accent, 97, 218, 251), 0.25);
+        transform: translateY(-1px);
       }
       .btn:disabled {
         opacity: 0.5;
@@ -297,72 +393,95 @@
       .row {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 10px;
         align-items: center;
       }
       .input {
         width: 100%;
-        padding: 10px 12px;
-        border-radius: 6px;
-        border: 1px solid #3a3a3a;
-        background-color: #1a1a1a;
+        padding: 11px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--border-subtle);
+        background-color: rgba(0, 0, 0, 0.3);
         color: var(--text-primary);
         font-family: "JetBrains Mono", "Fira Code", monospace;
-        font-size: 14px;
+        font-size: 13px;
         box-sizing: border-box;
-        transition: border-color 0.2s ease;
+        transition: all 0.2s ease;
       }
       .input:focus {
         outline: none;
-        border-color: var(--accent-cyan);
+        border-color: var(--card-accent, var(--accent-cyan));
+        background-color: rgba(0, 0, 0, 0.4);
+        box-shadow: 0 0 0 3px rgba(var(--card-accent, 97, 218, 251), 0.1);
+      }
+      .input::placeholder {
+        color: var(--text-muted);
+        opacity: 0.6;
       }
       label {
         color: var(--text-muted);
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
       }
       label input[type="checkbox"] {
-        margin-right: 6px;
+        margin-right: 8px;
+        accent-color: var(--card-accent, var(--accent-cyan));
       }
 
       /* Status Messages */
       .status-message {
-        font-size: 0.85rem;
-        padding: 8px 12px;
-        border-radius: 6px;
-        margin-top: 12px;
+        font-size: 0.8rem;
+        padding: 10px 14px;
+        border-radius: 10px;
+        margin-top: 14px;
+        display: none;
+        animation: slideIn 0.2s ease;
+      }
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
       .status-message.success {
-        background: rgba(46, 204, 113, 0.1);
+        background: rgba(46, 204, 113, 0.12);
         color: var(--accent-green);
-        border: 1px solid rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.25);
       }
       .status-message.error {
-        background: rgba(231, 76, 60, 0.1);
+        background: rgba(231, 76, 60, 0.12);
         color: var(--accent-red);
-        border: 1px solid rgba(231, 76, 60, 0.2);
+        border: 1px solid rgba(231, 76, 60, 0.25);
       }
       .status-message.info {
-        background: rgba(97, 218, 251, 0.1);
+        background: rgba(97, 218, 251, 0.12);
         color: var(--accent-cyan);
-        border: 1px solid rgba(97, 218, 251, 0.2);
+        border: 1px solid rgba(97, 218, 251, 0.25);
       }
 
       /* Footer Link */
       .footer-link {
-        margin-top: 24px;
-        padding: 16px 20px;
+        margin-top: 28px;
+        padding: 18px 24px;
         background: rgba(255, 255, 255, 0.02);
-        border-radius: 8px;
-        border: 1px dashed var(--border-subtle);
+        border-radius: 12px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
         text-align: center;
       }
       .footer-link a {
         color: var(--accent-cyan);
         text-decoration: none;
         font-weight: 500;
+        transition: color 0.15s ease;
       }
       .footer-link a:hover {
-        text-decoration: underline;
+        color: #fff;
       }
 
       /* Connection Status */
@@ -370,20 +489,24 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: var(--text-muted);
+        font-weight: 500;
       }
       .connection-status .dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
         background: var(--accent-green);
+        box-shadow: 0 0 6px var(--accent-green);
       }
       .connection-status.disconnected .dot {
         background: var(--accent-red);
+        box-shadow: 0 0 6px var(--accent-red);
       }
       .connection-status.connecting .dot {
         background: var(--accent-yellow);
+        box-shadow: 0 0 6px var(--accent-yellow);
         animation: pulse 1s ease-in-out infinite;
       }
 
@@ -393,6 +516,9 @@
         }
         .active-jobs-panel {
           margin-top: 12px;
+        }
+        .card {
+          padding: 20px;
         }
       }
     </style>
@@ -425,96 +551,137 @@
       </div>
 
       <div class="grid">
-        <div class="card" id="card-ingest">
+        <!-- Ingest Card -->
+        <div class="card card--ingest" id="card-ingest">
           <div class="card-status" id="status-ingest">
             <span class="status-dot"></span>
             <span class="status-text">Running</span>
           </div>
-          <h3>Ingest media from path</h3>
-          <p class="card-description">
-            Enter a local folder path to scan and ingest media files.
-          </p>
-          <div class="row" style="margin-bottom: 10px">
-            <input
-              class="input"
-              id="ingestPath"
-              name="ingestPath"
-              list="pathdir-suggestions"
-              placeholder="e.g. C:\Media\New"
-            />
-            <datalist id="pathdir-suggestions"></datalist>
+          <div class="card-header">
+            <div class="card-icon">📥</div>
+            <div class="card-titles">
+              <h3>Ingest Media</h3>
+              <p class="card-description">
+                Scan a folder and import new media files
+              </p>
+            </div>
           </div>
-          <div class="row" style="margin-bottom: 14px">
-            <label
-              for="ingestRecursive"
-              style="display: inline-flex; align-items: center; cursor: pointer"
-            >
-              <input type="checkbox" id="ingestRecursive" />
-              Scan recursively
-            </label>
+          <div class="card-body">
+            <div class="row" style="margin-bottom: 12px">
+              <input
+                class="input"
+                id="ingestPath"
+                name="ingestPath"
+                list="pathdir-suggestions"
+                placeholder="e.g. C:\Media\New"
+              />
+              <datalist id="pathdir-suggestions"></datalist>
+            </div>
+            <div class="row" style="margin-bottom: 16px">
+              <label for="ingestRecursive">
+                <input type="checkbox" id="ingestRecursive" />
+                Scan recursively
+              </label>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" onclick="createIngestJob()">
+                Start Ingest
+              </button>
+            </div>
+            <div id="ingestStatus" class="status-message"></div>
           </div>
-          <div class="row">
-            <button class="btn btn-primary" onclick="createIngestJob()">
-              Start ingest
-            </button>
-          </div>
-          <div id="ingestStatus"></div>
         </div>
 
-        <div class="card" id="card-transcript">
+        <!-- Transcripts Card -->
+        <div class="card card--transcript" id="card-transcript">
           <div class="card-status" id="status-transcript">
             <span class="status-dot"></span>
             <span class="status-text">Running</span>
           </div>
-          <h3>Generate transcripts</h3>
-          <p class="card-description">
-            Create a job to generate transcripts for items without one.
-          </p>
-          <button class="btn btn-primary" onclick="createTranscriptsJob()">
-            Start transcripts job
-          </button>
+          <div class="card-header">
+            <div class="card-icon">🎙️</div>
+            <div class="card-titles">
+              <h3>Generate Transcripts</h3>
+              <p class="card-description">
+                Transcribe audio/video files using Whisper
+              </p>
+            </div>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-primary" onclick="createTranscriptsJob()">
+              Start Transcripts Job
+            </button>
+            <div id="transcriptStatus" class="status-message"></div>
+          </div>
         </div>
 
-        <div class="card" id="card-description">
+        <!-- Descriptions Card -->
+        <div class="card card--description" id="card-description">
           <div class="card-status" id="status-description">
             <span class="status-dot"></span>
             <span class="status-text">Running</span>
           </div>
-          <h3>Generate descriptions</h3>
-          <p class="card-description">
-            Create a job to generate descriptions for items with none.
-          </p>
-          <button class="btn btn-primary" onclick="createDescriptionsJob()">
-            Start descriptions job
-          </button>
+          <div class="card-header">
+            <div class="card-icon">✨</div>
+            <div class="card-titles">
+              <h3>Generate Descriptions</h3>
+              <p class="card-description">
+                Create AI-powered descriptions for media
+              </p>
+            </div>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-primary" onclick="createDescriptionsJob()">
+              Start Descriptions Job
+            </button>
+            <div id="descriptionStatus" class="status-message"></div>
+          </div>
         </div>
 
-        <div class="card" id="card-autotag">
+        <!-- Autotag Card -->
+        <div class="card card--autotag" id="card-autotag">
           <div class="card-status" id="status-autotag">
             <span class="status-dot"></span>
             <span class="status-text">Running</span>
           </div>
-          <h3>Auto-tag with ONNX tagger</h3>
-          <p class="card-description">
-            Use the ONNX tagger to add Suggested tags where none exist.
-          </p>
-          <button class="btn btn-primary" onclick="createOnnxAutotagJob()">
-            Start ONNX auto-tag
-          </button>
+          <div class="card-header">
+            <div class="card-icon">🏷️</div>
+            <div class="card-titles">
+              <h3>Auto-Tag with ONNX</h3>
+              <p class="card-description">
+                Automatically tag images using ML vision model
+              </p>
+            </div>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-primary" onclick="createOnnxAutotagJob()">
+              Start Auto-Tag Job
+            </button>
+            <div id="autotagStatus" class="status-message"></div>
+          </div>
         </div>
 
-        <div class="card" id="card-cleanup">
+        <!-- Cleanup Card -->
+        <div class="card card--cleanup" id="card-cleanup">
           <div class="card-status" id="status-cleanup">
             <span class="status-dot"></span>
             <span class="status-text">Running</span>
           </div>
-          <h3>Cleanup database</h3>
-          <p class="card-description">
-            Remove media entries whose files are missing from disk.
-          </p>
-          <button class="btn btn-primary" onclick="createCleanupJob()">
-            Start cleanup
-          </button>
+          <div class="card-header">
+            <div class="card-icon">🧹</div>
+            <div class="card-titles">
+              <h3>Cleanup Database</h3>
+              <p class="card-description">
+                Remove entries for missing files from disk
+              </p>
+            </div>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-primary" onclick="createCleanupJob()">
+              Start Cleanup
+            </button>
+            <div id="cleanupStatus" class="status-message"></div>
+          </div>
         </div>
       </div>
 
@@ -568,14 +735,10 @@
         const args = "--type transcript --apply all --query64=" + b64(query);
         postCreate(`metadata ${args}`)
           .then((res) => {
-            showStatus(
-              "ingestStatus",
-              "Transcripts job created: " + res.id,
-              "success"
-            );
+            showStatus("transcriptStatus", "Job created: " + res.id, "success");
           })
           .catch((err) =>
-            showStatus("ingestStatus", "Error: " + err.message, "error")
+            showStatus("transcriptStatus", "Error: " + err.message, "error")
           );
       }
 
@@ -585,13 +748,13 @@
         postCreate(`metadata ${args}`)
           .then((res) => {
             showStatus(
-              "ingestStatus",
-              "Descriptions job created: " + res.id,
+              "descriptionStatus",
+              "Job created: " + res.id,
               "success"
             );
           })
           .catch((err) =>
-            showStatus("ingestStatus", "Error: " + err.message, "error")
+            showStatus("descriptionStatus", "Error: " + err.message, "error")
           );
       }
 
@@ -600,19 +763,14 @@
         const args = "--query64=" + b64(query);
         postCreate(`autotag ${args}`)
           .then((res) => {
-            showStatus(
-              "ingestStatus",
-              "ONNX autotag job created: " + res.id,
-              "success"
-            );
+            showStatus("autotagStatus", "Job created: " + res.id, "success");
           })
           .catch((err) =>
-            showStatus("ingestStatus", "Error: " + err.message, "error")
+            showStatus("autotagStatus", "Error: " + err.message, "error")
           );
       }
 
       function createIngestJob() {
-        const statusEl = document.getElementById("ingestStatus");
         const path = (document.getElementById("ingestPath").value || "").trim();
         const recursive = document.getElementById("ingestRecursive").checked;
         if (!path) {
@@ -623,11 +781,7 @@
         const args = (recursive ? "--recursive " : "") + `"${path}"`;
         postCreate(`ingest ${args}`)
           .then((res) => {
-            showStatus(
-              "ingestStatus",
-              "Ingest job created: " + res.id,
-              "success"
-            );
+            showStatus("ingestStatus", "Job created: " + res.id, "success");
             document.getElementById("ingestPath").value = "";
           })
           .catch((err) =>
@@ -638,14 +792,10 @@
       function createCleanupJob() {
         postCreate("cleanup")
           .then((res) => {
-            showStatus(
-              "ingestStatus",
-              "Cleanup job created: " + res.id,
-              "success"
-            );
+            showStatus("cleanupStatus", "Job created: " + res.id, "success");
           })
           .catch((err) =>
-            showStatus("ingestStatus", "Error: " + err.message, "error")
+            showStatus("cleanupStatus", "Error: " + err.message, "error")
           );
       }
 
@@ -781,7 +931,8 @@
           const input = job.input || job.Input || "";
 
           if (!itemEl) {
-            itemEl = document.createElement("div");
+            itemEl = document.createElement("a");
+            itemEl.href = `/job/${jobId}`;
             itemEl.className = "job-item " + state;
             itemEl.setAttribute("data-job-id", jobId);
             itemEl.innerHTML = `
@@ -791,7 +942,8 @@
                 <div class="job-detail"></div>
               </div>
               <div class="job-actions">
-                <button onclick="cancelJobById('${jobId}')">Cancel</button>
+                <span class="job-link-icon">→</span>
+                <button onclick="event.preventDefault(); event.stopPropagation(); cancelJobById('${jobId}')">Cancel</button>
               </div>
             `;
             listEl.appendChild(itemEl);
