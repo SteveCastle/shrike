@@ -284,8 +284,10 @@
 
         // Combined pattern to match URLs and Windows paths in a single pass
         // This prevents double-matching and maintains proper order
+        // Windows paths can contain spaces and common special characters
+        // Allowed: alphanumerics, spaces, . _ - \ ( ) [ ] { } @ # $ % & ! ~ ` ' +
         const combinedPattern =
-          /(https?:\/\/[^\s<>"']+)|([A-Za-z]:\\[^\s<>"'*?|:]+)/g;
+          /(https?:\/\/[^\s<>"']+)|([A-Za-z]:\\[\w\s.\-\\()\[\]{}@#$%&!~`'+]+)/g;
 
         let lastIndex = 0;
         let result = "";
@@ -297,7 +299,7 @@
           result += escapeHtml(before);
 
           const url = match[1];
-          const winPath = match[2];
+          let winPath = match[2];
 
           if (url) {
             // It's a URL - open in new tab
@@ -307,12 +309,14 @@
               url
             )}</a>`;
           } else if (winPath) {
+            // Trim trailing whitespace from the path (spaces are valid in paths but not at the end)
+            winPath = winPath.trimEnd();
             // It's a Windows path - open with OS default app
             const escapedPath = escapeHtml(winPath);
             result += `<a href="#" class="local-path" data-path="${escapedPath}" onclick="openLocalPath(event, this)">${escapedPath}</a>`;
           }
 
-          lastIndex = combinedPattern.lastIndex;
+          lastIndex = match.index + match[0].length;
         }
 
         // Add remaining text after last match
