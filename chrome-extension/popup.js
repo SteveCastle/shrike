@@ -55,9 +55,37 @@ async function init() {
     if (e.key === "Enter") createTask();
   });
 
+  // Set up event delegation for job actions
+  elements.jobsList.addEventListener("click", handleJobClick);
+
   // Connect to SSE and fetch initial jobs
   connectSSE();
   fetchJobs();
+}
+
+// Handle clicks on job items using event delegation
+function handleJobClick(e) {
+  // Find the closest element with a data-action attribute
+  const target = e.target.closest("[data-action]");
+  if (!target) return;
+
+  const action = target.getAttribute("data-action");
+  const id = target.getAttribute("data-id");
+  if (!id) return;
+
+  e.preventDefault();
+
+  switch (action) {
+    case "cancel":
+      cancelJob(id);
+      break;
+    case "remove":
+      removeJobFromServer(id);
+      break;
+    case "open":
+      openJobDetail(id);
+      break;
+  }
 }
 
 // Get current tab URL
@@ -336,9 +364,9 @@ function renderJobs() {
       return `
       <div class="job-item" data-id="${job.id}">
         <div class="job-status ${statusClass}"></div>
-        <div class="job-details" onclick="openJobDetail('${
+        <div class="job-details" data-action="open" data-id="${
           job.id
-        }')" style="cursor: pointer;" title="Open in web UI">
+        }" style="cursor: pointer;" title="Open in web UI">
           <div class="job-command">${escapeHtml(job.command || "Unknown")}</div>
           <div class="job-input" title="${escapeHtml(
             job.input || ""
@@ -348,8 +376,8 @@ function renderJobs() {
         <div class="job-actions">
           ${
             isActive
-              ? `<button class="job-action-btn cancel" onclick="cancelJob('${job.id}')" title="Cancel">✕</button>`
-              : `<button class="job-action-btn remove" onclick="removeJobFromServer('${job.id}')" title="Remove">✕</button>`
+              ? `<button class="job-action-btn cancel" data-action="cancel" data-id="${job.id}" title="Cancel">✕</button>`
+              : `<button class="job-action-btn remove" data-action="remove" data-id="${job.id}" title="Remove">✕</button>`
           }
         </div>
       </div>
@@ -399,11 +427,6 @@ async function removeJobFromServer(jobId) {
 function openJobDetail(jobId) {
   chrome.tabs.create({ url: `${API_BASE}/job/${jobId}` });
 }
-
-// Make functions available globally for onclick
-window.cancelJob = cancelJob;
-window.removeJobFromServer = removeJobFromServer;
-window.openJobDetail = openJobDetail;
 
 // UI Helpers
 function updateServerStatus(connected) {
