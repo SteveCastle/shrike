@@ -826,34 +826,6 @@
       }
 
       /* Page Header */
-      .page-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--space-4);
-        padding: var(--space-3);
-        background: linear-gradient(
-          135deg,
-          var(--bg-elevated) 0%,
-          var(--bg-surface) 100%
-        );
-        border-radius: var(--radius-lg);
-        border-left: 3px solid var(--accent-primary);
-      }
-
-      .page-header h1 {
-        margin: 0;
-        font-size: var(--text-2xl);
-        font-weight: 700;
-        color: var(--text-primary);
-      }
-
-      .header-controls {
-        display: flex;
-        align-items: center;
-        gap: var(--space-3);
-      }
-
       /* Sticky Selection Container */
       .selection-container {
         position: sticky;
@@ -1098,16 +1070,6 @@
           padding: var(--space-3);
         }
 
-        .page-header {
-          flex-direction: column;
-          align-items: flex-start;
-          gap: var(--space-3);
-        }
-
-        .page-header h1 {
-          font-size: var(--text-xl);
-        }
-
         .search-container {
           padding: var(--space-3);
         }
@@ -1245,20 +1207,6 @@
   </head>
   <body>
     <div class="media-container">
-      <div class="page-header">
-        <h1>Media Browser</h1>
-        <div class="header-controls">
-          <div class="view-toggle">
-            <button id="view-table" type="button" class="toggle-btn">
-              Table
-            </button>
-            <button id="view-grid" type="button" class="toggle-btn">
-              Grid
-            </button>
-          </div>
-        </div>
-      </div>
-
       {{ template "topnav" . }}
 
       <div class="search-container">
@@ -1316,6 +1264,14 @@
             </label>
           </div>
           <div class="selection-bar-right">
+            <div class="view-toggle">
+              <button id="view-table" type="button" class="toggle-btn">
+                Table
+              </button>
+              <button id="view-grid" type="button" class="toggle-btn">
+                Grid
+              </button>
+            </div>
             <span id="selection-count" class="selection-count">0 items</span>
           </div>
         </div>
