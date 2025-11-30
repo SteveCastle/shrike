@@ -13,6 +13,9 @@ import (
 type Config struct {
 	DBPath string `json:"dbPath"`
 
+	// Download path for media files
+	DownloadPath string `json:"downloadPath"`
+
 	// Ollama / LLM settings
 	OllamaBaseURL  string `json:"ollamaBaseUrl"`
 	OllamaModel    string `json:"ollamaModel"`
@@ -38,9 +41,19 @@ var (
 	cfg   Config
 )
 
+// defaultDownloadPath returns the default download path (~/media).
+func defaultDownloadPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "media"
+	}
+	return filepath.Join(home, "media")
+}
+
 // defaultConfig returns a Config populated with sensible defaults.
 func defaultConfig() Config {
 	return Config{
+		DownloadPath:   defaultDownloadPath(),
 		OllamaBaseURL:  "http://localhost:11434",
 		OllamaModel:    "llama3.2-vision",
 		DescribePrompt: "Please describe this image, paying special attention to the people, the color of hair, clothing, items, text and captions, and actions being performed.",
@@ -129,6 +142,9 @@ func Load() (Config, string, error) {
 	}
 	// Merge defaults for any missing optional fields
 	def := defaultConfig()
+	if c.DownloadPath == "" {
+		c.DownloadPath = def.DownloadPath
+	}
 	if c.OllamaBaseURL == "" {
 		c.OllamaBaseURL = def.OllamaBaseURL
 	}

@@ -787,6 +787,7 @@ type configTemplateData struct {
 
 type updateConfigRequest struct {
 	DBPath                 string  `json:"dbPath"`
+	DownloadPath           string  `json:"downloadPath"`
 	OllamaBaseURL          string  `json:"ollamaBaseUrl"`
 	OllamaModel            string  `json:"ollamaModel"`
 	DescribePrompt         string  `json:"describePrompt"`
@@ -834,6 +835,9 @@ func configHandler(deps *Dependencies) http.HandlerFunc {
 			oldDBPath := currentConfig.DBPath
 			newCfg := currentConfig
 			newCfg.DBPath = req.DBPath
+			if strings.TrimSpace(req.DownloadPath) != "" {
+				newCfg.DownloadPath = strings.TrimSpace(req.DownloadPath)
+			}
 			if strings.TrimSpace(req.OllamaBaseURL) != "" {
 				newCfg.OllamaBaseURL = strings.TrimSpace(req.OllamaBaseURL)
 			}
