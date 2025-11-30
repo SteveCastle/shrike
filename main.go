@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/stevecastle/shrike/renderer"
 	"github.com/stevecastle/shrike/runners"
 	"github.com/stevecastle/shrike/stream"
+	"github.com/stevecastle/shrike/tasks"
 )
 
 // -----------------------------------------------------------------------------
@@ -655,6 +657,43 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
+// Tasks handler – lists all registered tasks/commands
+// -----------------------------------------------------------------------------
+
+// TaskInfo represents a task for the API response
+type TaskInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func tasksHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		taskMap := tasks.GetTasks()
+		taskList := make([]TaskInfo, 0, len(taskMap))
+
+		for _, t := range taskMap {
+			taskList = append(taskList, TaskInfo{
+				ID:   t.ID,
+				Name: t.Name,
+			})
+		}
+
+		// Sort by ID for consistent ordering
+		sort.Slice(taskList, func(i, j int) bool {
+			return taskList[i].ID < taskList[j].ID
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"tasks": taskList})
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Ollama models handler – lists available models via `ollama ls`
 // -----------------------------------------------------------------------------
 
@@ -1203,6 +1242,7 @@ func main() {
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
 	mux.HandleFunc("/stats", renderer.ApplyMiddlewares(statsHandler(deps)))
 	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))
+	mux.HandleFunc("/tasks", renderer.ApplyMiddlewares(tasksHandler(deps)))
 
 	// Serve embedded static files
 	mux.Handle("/static/",

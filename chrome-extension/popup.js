@@ -4,6 +4,7 @@ const API_BASE = "http://localhost:8090";
 // State
 let eventSource = null;
 let jobs = [];
+let tasks = []; // Available tasks from server
 let isConnecting = false;
 let argsHistory = {}; // Per-command argument history
 let currentArgsPerCommand = {}; // Current/last-used args for each command
@@ -44,7 +45,10 @@ async function init() {
   elements.refreshBtn = document.getElementById("refreshBtn");
   elements.clearAllBtn = document.getElementById("clearAllBtn");
 
-  // Load saved preferences
+  // Fetch available tasks first
+  await fetchTasks();
+
+  // Load saved preferences (after tasks are loaded so we can restore selection)
   await loadPreferences();
 
   // Get current tab URL
@@ -126,6 +130,42 @@ async function populateCurrentUrl() {
   }
 }
 
+// Fetch available tasks from server
+async function fetchTasks() {
+  try {
+    const response = await fetch(`${API_BASE}/tasks`);
+    if (!response.ok) throw new Error("Failed to fetch tasks");
+
+    const data = await response.json();
+    if (Array.isArray(data.tasks)) {
+      tasks = data.tasks;
+      populateCommandDropdown();
+      updateServerStatus(true);
+    }
+  } catch (err) {
+    console.error("Fetch tasks error:", err);
+    // Fall back to a minimal set if server is unavailable
+    tasks = [
+      { id: "gallery-dl", name: "gallery-dl" },
+      { id: "yt-dlp", name: "yt-dlp" },
+    ];
+    populateCommandDropdown();
+    updateServerStatus(false);
+  }
+}
+
+// Populate the command dropdown with tasks
+function populateCommandDropdown() {
+  elements.command.innerHTML = tasks
+    .map(
+      (task) =>
+        `<option value="${escapeHtml(task.id)}">${escapeHtml(
+          task.name
+        )}</option>`
+    )
+    .join("");
+}
+
 // Save/load preferences
 function savePreferences() {
   // Save current args for the current command before saving
@@ -152,10 +192,17 @@ async function loadPreferences() {
         }
         if (result.lastCommand) {
           elements.command.value = result.lastCommand;
-          // Restore the args for the last command
-          elements.args.value = currentArgsPerCommand[result.lastCommand] || "";
-          // Initialize previousCommand for tracking changes
-          previousCommand = result.lastCommand;
+          // Check if the saved command actually exists in the dropdown
+          // (it might have been removed from the server)
+          if (elements.command.value !== result.lastCommand) {
+            // Command doesn't exist anymore, use first available
+            previousCommand = elements.command.value;
+          } else {
+            // Restore the args for the last command
+            elements.args.value =
+              currentArgsPerCommand[result.lastCommand] || "";
+            previousCommand = result.lastCommand;
+          }
         } else {
           // Default to first option if no saved command
           previousCommand = elements.command.value;
@@ -500,6 +547,8 @@ function refreshJobs() {
   renderJobs();
   connectSSE();
   fetchJobs();
+  // Also refresh tasks in case new ones were registered
+  fetchTasks();
 }
 
 // Clear all non-running jobs
