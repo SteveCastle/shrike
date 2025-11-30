@@ -89,6 +89,26 @@
         font-size: var(--text-sm);
       }
 
+      .terminal-line a {
+        color: var(--accent-cyan);
+        text-decoration: none;
+        cursor: pointer;
+        transition: opacity var(--transition-fast);
+      }
+
+      .terminal-line a:hover {
+        opacity: 0.8;
+        text-decoration: underline;
+      }
+
+      .terminal-line a.local-path {
+        color: var(--accent-primary);
+      }
+
+      .terminal-line a.local-path:hover {
+        color: var(--accent-cyan);
+      }
+
       header button {
         font-size: var(--text-sm);
         padding: var(--space-2) var(--space-4);
@@ -242,14 +262,102 @@
       <div class="terminal">
         <div class="terminal-content">
           {{range $index, $line := .Job.Stdout }}
-          <div class="terminal-line">{{$line}}</div>
+          <div class="terminal-line" data-raw="{{$line}}"></div>
           {{end}}
         </div>
       </div>
     </div>
 
     <script>
+      // Escape HTML special characters
+      function escapeHtml(text) {
+        return text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      // Linkify URLs and local paths in terminal output
+      function linkifyText(text) {
+        if (!text) return "";
+
+        // Combined pattern to match URLs and Windows paths in a single pass
+        // This prevents double-matching and maintains proper order
+        const combinedPattern =
+          /(https?:\/\/[^\s<>"']+)|([A-Za-z]:\\[^\s<>"'*?|:]+)/g;
+
+        let lastIndex = 0;
+        let result = "";
+        let match;
+
+        while ((match = combinedPattern.exec(text)) !== null) {
+          // Add escaped text before this match
+          const before = text.slice(lastIndex, match.index);
+          result += escapeHtml(before);
+
+          const url = match[1];
+          const winPath = match[2];
+
+          if (url) {
+            // It's a URL - open in new tab
+            result += `<a href="${escapeHtml(
+              url
+            )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+              url
+            )}</a>`;
+          } else if (winPath) {
+            // It's a Windows path - open with OS default app
+            const escapedPath = escapeHtml(winPath);
+            result += `<a href="#" class="local-path" data-path="${escapedPath}" onclick="openLocalPath(event, this)">${escapedPath}</a>`;
+          }
+
+          lastIndex = combinedPattern.lastIndex;
+        }
+
+        // Add remaining text after last match
+        result += escapeHtml(text.slice(lastIndex));
+
+        return result;
+      }
+
+      // Open local path using OS default application
+      function openLocalPath(event, element) {
+        event.preventDefault();
+        const path = element.getAttribute("data-path");
+        if (!path) return;
+
+        fetch("/open", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: path }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              console.error("Failed to open path:", path);
+            }
+          })
+          .catch((err) => console.error("Error opening path:", err));
+      }
+
+      // Apply linkification to all existing terminal lines on load
+      function linkifyExistingLines() {
+        document
+          .querySelectorAll(".terminal-line[data-raw]")
+          .forEach((line) => {
+            const rawText = line.getAttribute("data-raw");
+            if (rawText) {
+              line.innerHTML = linkifyText(rawText);
+            }
+          });
+      }
+    </script>
+
+    <script>
       document.addEventListener("DOMContentLoaded", function () {
+        // Linkify existing terminal content
+        linkifyExistingLines();
+
         const STREAM_URL = "/stream";
         const EVENT_STDOUT = "stdout-{{.Job.ID}}";
         const EVENT_UPDATE = "update";
@@ -397,7 +505,7 @@
                 if (!container) return;
                 var newLine = document.createElement("div");
                 newLine.className = "terminal-line";
-                newLine.textContent = data.line;
+                newLine.innerHTML = linkifyText(data.line);
                 container.appendChild(newLine);
                 if (container.parentElement) {
                   container.parentElement.scrollTop =

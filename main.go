@@ -1170,6 +1170,48 @@ func getContentType(ext string) string {
 	}
 }
 
+// openPathHandler opens a local file or directory in the OS default application
+func openPathHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+
+		path := strings.TrimSpace(req.Path)
+		if path == "" {
+			http.Error(w, "path cannot be empty", http.StatusBadRequest)
+			return
+		}
+
+		// Validate it's an absolute path to prevent arbitrary command execution
+		if !filepath.IsAbs(path) {
+			http.Error(w, "path must be absolute", http.StatusBadRequest)
+			return
+		}
+
+		// Use Windows 'start' command to open in default application
+		// The empty string after /c start is for the title parameter
+		cmd := exec.Command("cmd", "/c", "start", "", path)
+		if err := cmd.Start(); err != nil {
+			log.Printf("Error opening path '%s': %v", path, err)
+			http.Error(w, "failed to open path", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
 func ParseCommand(input string) []string {
 	var (
 		result   []string
@@ -1243,6 +1285,7 @@ func main() {
 	mux.HandleFunc("/stats", renderer.ApplyMiddlewares(statsHandler(deps)))
 	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))
 	mux.HandleFunc("/tasks", renderer.ApplyMiddlewares(tasksHandler(deps)))
+	mux.HandleFunc("/open", renderer.ApplyMiddlewares(openPathHandler()))
 
 	// Serve embedded static files
 	mux.Handle("/static/",
