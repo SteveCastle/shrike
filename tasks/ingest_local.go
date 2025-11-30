@@ -12,11 +12,18 @@ import (
 )
 
 // ingestLocalTask scans local directories for media files and adds them to the database
+// This is the legacy entry point; prefer ingestLocalTaskWithOptions for new code.
 func ingestLocalTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	return ingestLocalTaskWithOptions(j, q, mu, IngestOptions{})
+}
+
+// ingestLocalTaskWithOptions scans local directories for media files and adds them to the database
+// It supports optional follow-up tasks based on the provided IngestOptions.
+func ingestLocalTaskWithOptions(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex, opts IngestOptions) error {
 	ctx := j.Ctx
 
 	var dirPath string
-	var recursive bool
+	recursive := opts.Recursive
 	if j.Input != "" {
 		dirPath = strings.TrimSpace(j.Input)
 	} else {
@@ -78,7 +85,7 @@ func ingestLocalTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return nil
 	}
 
-	inserted := 0
+	var insertedFiles []string
 	for i, filePath := range newFiles {
 		select {
 		case <-ctx.Done():
@@ -96,13 +103,17 @@ func ingestLocalTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to insert %s: %v", filePath, err))
 			continue
 		}
-		inserted++
+		insertedFiles = append(insertedFiles, filePath)
 		if (i+1)%100 == 0 || i == len(newFiles)-1 {
 			q.PushJobStdout(j.ID, fmt.Sprintf("Progress: %d/%d files ingested", i+1, len(newFiles)))
 		}
 	}
 
-	q.PushJobStdout(j.ID, fmt.Sprintf("Ingestion completed: %d files added to database", inserted))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Ingestion completed: %d files added to database", len(insertedFiles)))
+
+	// Queue follow-up tasks for each inserted file
+	queueFollowUpTasks(q, j.ID, insertedFiles, opts)
+
 	select {
 	case <-ctx.Done():
 		q.PushJobStdout(j.ID, "Task was canceled")

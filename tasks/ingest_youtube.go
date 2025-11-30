@@ -17,7 +17,14 @@ import (
 )
 
 // ingestYouTubeTask downloads media from YouTube using yt-dlp and adds to database
+// This is the legacy entry point; prefer ingestYouTubeTaskWithOptions for new code.
 func ingestYouTubeTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	return ingestYouTubeTaskWithOptions(j, q, mu, IngestOptions{})
+}
+
+// ingestYouTubeTaskWithOptions downloads media from YouTube using yt-dlp and adds to database
+// It supports optional follow-up tasks based on the provided IngestOptions.
+func ingestYouTubeTaskWithOptions(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex, opts IngestOptions) error {
 	ctx := j.Ctx
 	url := strings.TrimSpace(j.Input)
 
@@ -159,7 +166,7 @@ func ingestYouTubeTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error
 	}
 
 	// Add downloaded files to database
-	inserted := 0
+	var insertedFiles []string
 	for _, filePath := range downloadedFiles {
 		var size int64
 		if fi, statErr := os.Stat(filePath); statErr == nil {
@@ -169,11 +176,15 @@ func ingestYouTubeTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error
 			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to insert %s: %v", filePath, err))
 			continue
 		}
-		inserted++
+		insertedFiles = append(insertedFiles, filePath)
 		q.PushJobStdout(j.ID, fmt.Sprintf("Added to database: %s", filePath))
 	}
 
-	q.PushJobStdout(j.ID, fmt.Sprintf("Download completed: %d files added to database", inserted))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Download completed: %d files added to database", len(insertedFiles)))
+
+	// Queue follow-up tasks for each inserted file
+	queueFollowUpTasks(q, j.ID, insertedFiles, opts)
+
 	q.CompleteJob(j.ID)
 	return nil
 }

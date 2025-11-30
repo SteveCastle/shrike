@@ -17,7 +17,14 @@ import (
 
 // ingestGalleryTask downloads media using gallery-dl and adds to database
 // Each line of stdout from gallery-dl is the path of a written file
+// This is the legacy entry point; prefer ingestGalleryTaskWithOptions for new code.
 func ingestGalleryTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
+	return ingestGalleryTaskWithOptions(j, q, mu, IngestOptions{})
+}
+
+// ingestGalleryTaskWithOptions downloads media using gallery-dl and adds to database
+// It supports optional follow-up tasks based on the provided IngestOptions.
+func ingestGalleryTaskWithOptions(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex, opts IngestOptions) error {
 	ctx := j.Ctx
 	url := strings.TrimSpace(j.Input)
 
@@ -158,7 +165,7 @@ func ingestGalleryTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error
 	}
 
 	// Add downloaded files to database
-	inserted := 0
+	var insertedFiles []string
 	for _, filePath := range downloadedFiles {
 		// Verify the file exists and get its size
 		fi, statErr := os.Stat(filePath)
@@ -172,11 +179,15 @@ func ingestGalleryTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error
 			q.PushJobStdout(j.ID, fmt.Sprintf("Warning: failed to insert %s: %v", filePath, err))
 			continue
 		}
-		inserted++
+		insertedFiles = append(insertedFiles, filePath)
 		q.PushJobStdout(j.ID, fmt.Sprintf("Added to database: %s", filePath))
 	}
 
-	q.PushJobStdout(j.ID, fmt.Sprintf("Download completed: %d files added to database", inserted))
+	q.PushJobStdout(j.ID, fmt.Sprintf("Download completed: %d files added to database", len(insertedFiles)))
+
+	// Queue follow-up tasks for each inserted file
+	queueFollowUpTasks(q, j.ID, insertedFiles, opts)
+
 	q.CompleteJob(j.ID)
 	return nil
 }
