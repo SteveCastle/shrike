@@ -5,12 +5,19 @@ const API_BASE = "http://localhost:8090";
 let eventSource = null;
 let jobs = [];
 let isConnecting = false;
+let argsHistory = {}; // Per-command argument history
+let currentArgsPerCommand = {}; // Current/last-used args for each command
+let previousCommand = null; // Track command to save args when switching
+let selectedDropdownIndex = -1;
 
 // DOM Elements
 const elements = {
   serverStatus: null,
   command: null,
   args: null,
+  argsWrapper: null,
+  argsDropdown: null,
+  clearArgsHistory: null,
   url: null,
   createBtn: null,
   feedback: null,
@@ -27,6 +34,9 @@ async function init() {
   elements.serverStatus = document.getElementById("serverStatus");
   elements.command = document.getElementById("command");
   elements.args = document.getElementById("args");
+  elements.argsWrapper = document.querySelector(".args-wrapper");
+  elements.argsDropdown = document.getElementById("argsDropdown");
+  elements.clearArgsHistory = document.getElementById("clearArgsHistory");
   elements.url = document.getElementById("url");
   elements.createBtn = document.getElementById("createBtn");
   elements.feedback = document.getElementById("feedback");
@@ -35,7 +45,7 @@ async function init() {
   elements.clearAllBtn = document.getElementById("clearAllBtn");
 
   // Load saved preferences
-  loadPreferences();
+  await loadPreferences();
 
   // Get current tab URL
   await populateCurrentUrl();
@@ -44,19 +54,32 @@ async function init() {
   elements.createBtn.addEventListener("click", createTask);
   elements.refreshBtn.addEventListener("click", refreshJobs);
   elements.clearAllBtn.addEventListener("click", clearAllJobs);
-  elements.command.addEventListener("change", savePreferences);
-  elements.args.addEventListener("input", debounce(savePreferences, 500));
+  elements.command.addEventListener("change", handleCommandChange);
+  elements.clearArgsHistory.addEventListener("click", clearCurrentArgsHistory);
 
-  // Allow Enter key to submit
-  elements.args.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") createTask();
-  });
+  // Args input events for autocomplete
+  elements.args.addEventListener("focus", showArgsDropdown);
+  elements.args.addEventListener("blur", handleArgsBlur);
+  elements.args.addEventListener("input", handleArgsInput);
+  elements.args.addEventListener("keydown", handleArgsKeydown);
+
+  // Allow Enter key to submit from URL field
   elements.url.addEventListener("keypress", (e) => {
     if (e.key === "Enter") createTask();
   });
 
   // Set up event delegation for job actions
   elements.jobsList.addEventListener("click", handleJobClick);
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (
+      !elements.args.contains(e.target) &&
+      !elements.argsDropdown.contains(e.target)
+    ) {
+      hideArgsDropdown();
+    }
+  });
 
   // Connect to SSE and fetch initial jobs
   connectSSE();
@@ -105,21 +128,279 @@ async function populateCurrentUrl() {
 
 // Save/load preferences
 function savePreferences() {
+  // Save current args for the current command before saving
+  const command = elements.command.value;
+  currentArgsPerCommand[command] = elements.args.value;
+
   chrome.storage.local.set({
-    lastCommand: elements.command.value,
-    lastArgs: elements.args.value,
+    lastCommand: command,
+    argsHistory: argsHistory,
+    currentArgsPerCommand: currentArgsPerCommand,
   });
 }
 
-function loadPreferences() {
-  chrome.storage.local.get(["lastCommand", "lastArgs"], (result) => {
-    if (result.lastCommand) {
-      elements.command.value = result.lastCommand;
-    }
-    if (result.lastArgs) {
-      elements.args.value = result.lastArgs;
-    }
+async function loadPreferences() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(
+      ["lastCommand", "argsHistory", "currentArgsPerCommand"],
+      (result) => {
+        if (result.argsHistory) {
+          argsHistory = result.argsHistory;
+        }
+        if (result.currentArgsPerCommand) {
+          currentArgsPerCommand = result.currentArgsPerCommand;
+        }
+        if (result.lastCommand) {
+          elements.command.value = result.lastCommand;
+          // Restore the args for the last command
+          elements.args.value = currentArgsPerCommand[result.lastCommand] || "";
+          // Initialize previousCommand for tracking changes
+          previousCommand = result.lastCommand;
+        } else {
+          // Default to first option if no saved command
+          previousCommand = elements.command.value;
+        }
+        updateClearHistoryButton();
+        resolve();
+      }
+    );
   });
+}
+
+// Handle command change
+function handleCommandChange() {
+  // Save the args for the previous command before switching
+  if (previousCommand) {
+    currentArgsPerCommand[previousCommand] = elements.args.value;
+  }
+
+  const newCommand = elements.command.value;
+
+  // Load args for the new command
+  elements.args.value = currentArgsPerCommand[newCommand] || "";
+
+  // Update previous command for next switch
+  previousCommand = newCommand;
+
+  updateClearHistoryButton();
+  savePreferences();
+}
+
+// Args history management
+function addArgsToHistory(command, args) {
+  if (!args || args.trim() === "") return;
+
+  const trimmedArgs = args.trim();
+
+  if (!argsHistory[command]) {
+    argsHistory[command] = [];
+  }
+
+  // Remove if already exists (to move to front)
+  argsHistory[command] = argsHistory[command].filter((a) => a !== trimmedArgs);
+
+  // Add to front
+  argsHistory[command].unshift(trimmedArgs);
+
+  // Keep only last 10 entries per command
+  if (argsHistory[command].length > 10) {
+    argsHistory[command] = argsHistory[command].slice(0, 10);
+  }
+
+  savePreferences();
+  updateClearHistoryButton();
+}
+
+function removeArgFromHistory(command, arg) {
+  if (!argsHistory[command]) return;
+
+  argsHistory[command] = argsHistory[command].filter((a) => a !== arg);
+
+  if (argsHistory[command].length === 0) {
+    delete argsHistory[command];
+  }
+
+  savePreferences();
+  updateClearHistoryButton();
+  renderArgsDropdown();
+}
+
+function clearCurrentArgsHistory() {
+  const command = elements.command.value;
+  delete argsHistory[command];
+  delete currentArgsPerCommand[command];
+  elements.args.value = "";
+  savePreferences();
+  updateClearHistoryButton();
+  hideArgsDropdown();
+}
+
+function updateClearHistoryButton() {
+  const command = elements.command.value;
+  const hasHistory = argsHistory[command] && argsHistory[command].length > 0;
+  elements.clearArgsHistory.style.display = hasHistory ? "inline-flex" : "none";
+}
+
+// Args dropdown functions
+function showArgsDropdown() {
+  renderArgsDropdown();
+  const command = elements.command.value;
+  const history = argsHistory[command] || [];
+
+  if (history.length > 0) {
+    elements.argsDropdown.style.display = "block";
+    elements.argsWrapper.classList.add("dropdown-open");
+    selectedDropdownIndex = -1;
+  }
+}
+
+function hideArgsDropdown() {
+  elements.argsDropdown.style.display = "none";
+  elements.argsWrapper.classList.remove("dropdown-open");
+  selectedDropdownIndex = -1;
+}
+
+function handleArgsBlur(e) {
+  // Save args when leaving the field
+  savePreferences();
+
+  // Delay hide to allow click on dropdown items
+  setTimeout(() => {
+    if (!elements.argsDropdown.contains(document.activeElement)) {
+      hideArgsDropdown();
+    }
+  }, 150);
+}
+
+function handleArgsInput() {
+  renderArgsDropdown();
+  const history = getFilteredHistory();
+
+  if (history.length > 0) {
+    elements.argsDropdown.style.display = "block";
+    elements.argsWrapper.classList.add("dropdown-open");
+  } else {
+    hideArgsDropdown();
+  }
+}
+
+function handleArgsKeydown(e) {
+  const history = getFilteredHistory();
+
+  if (elements.argsDropdown.style.display === "none" || history.length === 0) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      createTask();
+    }
+    return;
+  }
+
+  switch (e.key) {
+    case "ArrowDown":
+      e.preventDefault();
+      selectedDropdownIndex = Math.min(
+        selectedDropdownIndex + 1,
+        history.length - 1
+      );
+      updateDropdownSelection();
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      selectedDropdownIndex = Math.max(selectedDropdownIndex - 1, -1);
+      updateDropdownSelection();
+      break;
+    case "Enter":
+      e.preventDefault();
+      if (
+        selectedDropdownIndex >= 0 &&
+        selectedDropdownIndex < history.length
+      ) {
+        selectArg(history[selectedDropdownIndex]);
+      } else {
+        createTask();
+      }
+      break;
+    case "Escape":
+      hideArgsDropdown();
+      break;
+  }
+}
+
+function getFilteredHistory() {
+  const command = elements.command.value;
+  const currentInput = elements.args.value.toLowerCase().trim();
+  const history = argsHistory[command] || [];
+
+  if (!currentInput) {
+    return history;
+  }
+
+  return history.filter((arg) => arg.toLowerCase().includes(currentInput));
+}
+
+function renderArgsDropdown() {
+  const history = getFilteredHistory();
+
+  if (history.length === 0) {
+    elements.argsDropdown.innerHTML =
+      '<div class="args-dropdown-empty">No saved arguments</div>';
+    return;
+  }
+
+  elements.argsDropdown.innerHTML = history
+    .map(
+      (arg, index) => `
+    <div class="args-dropdown-item${
+      index === selectedDropdownIndex ? " selected" : ""
+    }" data-arg="${escapeHtml(arg)}">
+      <span class="arg-text" title="${escapeHtml(arg)}">${escapeHtml(
+        arg
+      )}</span>
+      <span class="remove-arg" data-remove-arg="${escapeHtml(
+        arg
+      )}" title="Remove">✕</span>
+    </div>
+  `
+    )
+    .join("");
+
+  // Add click handlers
+  elements.argsDropdown
+    .querySelectorAll(".args-dropdown-item")
+    .forEach((item) => {
+      item.addEventListener("mousedown", (e) => {
+        // Prevent the blur event from firing before we can handle the click
+        e.preventDefault();
+
+        // Check if clicking the remove button
+        if (e.target.classList.contains("remove-arg")) {
+          const arg = e.target.getAttribute("data-remove-arg");
+          removeArgFromHistory(elements.command.value, arg);
+          return;
+        }
+
+        const arg = item.getAttribute("data-arg");
+        selectArg(arg);
+      });
+    });
+}
+
+function updateDropdownSelection() {
+  const items = elements.argsDropdown.querySelectorAll(".args-dropdown-item");
+  items.forEach((item, index) => {
+    item.classList.toggle("selected", index === selectedDropdownIndex);
+  });
+
+  // Scroll selected item into view
+  if (selectedDropdownIndex >= 0 && items[selectedDropdownIndex]) {
+    items[selectedDropdownIndex].scrollIntoView({ block: "nearest" });
+  }
+}
+
+function selectArg(arg) {
+  elements.args.value = arg;
+  hideArgsDropdown();
+  elements.args.focus();
 }
 
 // Create task
@@ -158,6 +439,9 @@ async function createTask() {
 
     const data = await response.json();
     showFeedback(`Task created: ${data.id.slice(0, 8)}...`, "success");
+
+    // Save args to history on successful task creation
+    addArgsToHistory(command, args);
 
     // Refresh jobs list
     fetchJobs();
