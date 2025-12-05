@@ -1,8 +1,6 @@
-# Shrike Chrome Extension
+# Shrike Firefox Extension
 
-A Chrome extension for creating Shrike tasks directly from your browser. Quickly send the current page URL to your Shrike job server with custom commands and arguments.
-
-> **Firefox User?** See the [Firefox Extension](../firefox-extension/README.md) for Firefox-specific installation instructions.
+A Firefox extension for creating Shrike tasks directly from your browser. Quickly send the current page URL to your Shrike job server with custom commands and arguments.
 
 ## Features
 
@@ -14,50 +12,63 @@ A Chrome extension for creating Shrike tasks directly from your browser. Quickly
 
 ## Prerequisites
 
-- Google Chrome or Chromium-based browser (Edge, Brave, etc.)
+- Firefox 91.0 or later
 - Shrike server running on `http://localhost:8090`
 
 ## Installation
 
-### Option 1: Load as Unpacked Extension (Development Mode)
+### Option 1: Temporary Installation (Development/Testing)
 
-1. **Generate Icons** (if not already present):
+This method is ideal for testing or development. The extension will be removed when Firefox restarts.
 
-   ```powershell
-   # Navigate to the chrome-extension directory
-   cd chrome-extension
+1. **Open Firefox Add-ons Debugging Page**:
 
-   # Run the icon generator script
-   node generate-icons.js
+   - Navigate to `about:debugging#/runtime/this-firefox` in Firefox
+   - Or go to Menu → Add-ons and themes → (gear icon) → Debug Add-ons
+
+2. **Load the Extension**:
+
+   - Click "Load Temporary Add-on..."
+   - Navigate to the `firefox-extension` folder
+   - Select the `manifest.json` file
+
+3. **Pin the Extension** (optional):
+   - Click the puzzle piece icon in the Firefox toolbar
+   - Find "Shrike" and click the gear icon → "Pin to Toolbar"
+
+### Option 2: Permanent Installation (Unsigned - Developer Mode)
+
+For permanent installation without Mozilla signing, you need to use Firefox Developer Edition or Firefox Nightly:
+
+1. **Use Firefox Developer Edition or Nightly**:
+
+   - Download from [Firefox Developer Edition](https://www.mozilla.org/firefox/developer/) or [Firefox Nightly](https://www.mozilla.org/firefox/nightly/)
+
+2. **Disable Signature Enforcement**:
+
+   - Navigate to `about:config`
+   - Search for `xpinstall.signatures.required`
+   - Set it to `false`
+
+3. **Package the Extension**:
+
+   ```bash
+   cd firefox-extension
+   zip -r shrike-firefox.xpi *
    ```
 
-   Or manually create icon files (see [Creating Icons](#creating-icons) below).
+4. **Install the XPI**:
+   - Open `about:addons`
+   - Click the gear icon → "Install Add-on From File..."
+   - Select the `shrike-firefox.xpi` file
 
-2. **Open Chrome Extensions Page**:
+### Option 3: Install as Signed Add-on (Production)
 
-   - Navigate to `chrome://extensions/` in your browser
-   - Or go to Menu → More Tools → Extensions
+For distribution or use in standard Firefox, you need to sign the extension:
 
-3. **Enable Developer Mode**:
-
-   - Toggle the "Developer mode" switch in the top-right corner
-
-4. **Load the Extension**:
-
-   - Click "Load unpacked"
-   - Select the `chrome-extension` folder from this repository
-
-5. **Pin the Extension** (optional but recommended):
-   - Click the puzzle piece icon in the Chrome toolbar
-   - Find "Shrike" and click the pin icon
-
-### Option 2: Pack and Install
-
-1. Generate icons and go to `chrome://extensions/`
-2. Enable Developer mode
-3. Click "Pack extension"
-4. Select the `chrome-extension` folder
-5. This creates a `.crx` file you can distribute
+1. Create a [Mozilla Add-ons Developer Account](https://addons.mozilla.org/developers/)
+2. Submit the extension for signing (can be unlisted for personal use)
+3. Download the signed XPI and install via `about:addons`
 
 ## Usage
 
@@ -121,7 +132,7 @@ The extension requires PNG icons in multiple sizes. You can create them using an
 ### Method 1: Use the Generator Script
 
 ```bash
-cd chrome-extension
+cd firefox-extension
 node generate-icons.js
 ```
 
@@ -132,18 +143,10 @@ This creates placeholder icons with the Shrike logo.
 Create the following PNG files in the `icons/` folder:
 
 - `icon16.png` (16x16 pixels)
-- `icon32.png` (32x32 pixels)
 - `icon48.png` (48x48 pixels)
 - `icon128.png` (128x128 pixels)
 
 You can use any image editor or convert the project's `assets/logo.ico` file.
-
-### Method 3: Use Online Converter
-
-1. Take the `assets/logo.ico` from the main Shrike project
-2. Use an online ICO to PNG converter
-3. Resize to required dimensions
-4. Save in the `icons/` folder
 
 ## Configuration
 
@@ -151,7 +154,7 @@ The extension connects to `http://localhost:8090` by default. If you need to cha
 
 1. Open `popup.js`
 2. Modify the `API_BASE` constant at the top of the file
-3. Update `host_permissions` in `manifest.json` accordingly
+3. Update the permissions in `manifest.json` accordingly
 4. Reload the extension
 
 ## Troubleshooting
@@ -165,7 +168,7 @@ The extension connects to `http://localhost:8090` by default. If you need to cha
 ### "Failed to create task" error
 
 - Verify the Shrike server is running
-- Check the browser console for detailed error messages
+- Check the browser console (F12 → Console) for detailed error messages
 - Ensure the URL/input is valid for the selected command
 
 ### Jobs not updating in real-time
@@ -180,30 +183,41 @@ The extension connects to `http://localhost:8090` by default. If you need to cha
 - Run the icon generator script or create icons manually
 - Reload the extension after adding icons
 
+### "Temporary add-on" message
+
+- This is normal when loading via `about:debugging`
+- For permanent installation, see Option 2 or Option 3 above
+
 ## Development
 
 ### File Structure
 
 ```
-chrome-extension/
-├── manifest.json      # Extension configuration
+firefox-extension/
+├── manifest.json      # Extension configuration (Manifest V2)
 ├── popup.html         # Extension popup UI
 ├── popup.css          # Styles
-├── popup.js           # Main functionality
+├── popup.js           # Main functionality (uses browser.* API)
 ├── generate-icons.js  # Icon generator script
 ├── icons/
 │   ├── icon16.png
-│   ├── icon32.png
 │   ├── icon48.png
 │   └── icon128.png
 └── README.md
 ```
 
+### Differences from Chrome Extension
+
+- Uses Manifest V2 (Firefox Manifest V3 support is still maturing)
+- Uses `browser.*` API instead of `chrome.*`
+- Uses `browser_action` instead of `action`
+- Includes `browser_specific_settings` for Firefox compatibility
+
 ### Making Changes
 
 1. Edit the source files as needed
-2. Go to `chrome://extensions/`
-3. Click the reload button on the Shrike extension
+2. Go to `about:debugging#/runtime/this-firefox`
+3. Click "Reload" on the Shrike extension
 4. Test your changes
 
 ### API Reference
@@ -212,8 +226,10 @@ The extension uses these Shrike API endpoints:
 
 - `POST /create` - Create a new job
 - `GET /stream` - SSE for job updates
-- `GET /health` - Server health check
+- `GET /tasks` - List available commands
+- `GET /jobs/list` - List current jobs
 - `POST /job/{id}/cancel` - Cancel a job
+- `POST /job/{id}/remove` - Remove a job
 
 See the main Shrike `API_DOCUMENTATION.md` for full details.
 
