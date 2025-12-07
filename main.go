@@ -657,6 +657,123 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
+// Swipe view handlers – TikTok-like mobile experience
+// -----------------------------------------------------------------------------
+
+// swipeTemplateData holds data for the swipe template
+type swipeTemplateData struct {
+	SearchQuery string `json:"search_query"`
+}
+
+// swipeHandler serves the swipe (TikTok-like) view page
+func swipeHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		searchQuery := r.URL.Query().Get("q")
+
+		data := swipeTemplateData{
+			SearchQuery: searchQuery,
+		}
+
+		if err := renderer.Templates().ExecuteTemplate(w, "swipe", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+// swipeAPIHandler serves randomized media items for the swipe view
+func swipeAPIHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Parse query parameters
+		offsetStr := r.URL.Query().Get("offset")
+		limitStr := r.URL.Query().Get("limit")
+		searchQuery := r.URL.Query().Get("q")
+		seedStr := r.URL.Query().Get("seed")
+
+		offset := 0
+		limit := 20
+		seed := int64(0)
+
+		if offsetStr != "" {
+			if parsed, err := strconv.Atoi(offsetStr); err == nil {
+				offset = parsed
+			}
+		}
+
+		if limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 50 {
+				limit = parsed
+			}
+		}
+
+		if seedStr != "" {
+			if parsed, err := strconv.ParseInt(seedStr, 10, 64); err == nil {
+				seed = parsed
+			}
+		}
+
+		items, hasMore, err := media.GetRandomItems(deps.DB, offset, limit, searchQuery, seed)
+		if err != nil {
+			log.Printf("Error fetching random media items: %v", err)
+			http.Error(w, "Error fetching media items", http.StatusInternalServerError)
+			return
+		}
+
+		response := media.APIResponse{
+			Items:   items,
+			HasMore: hasMore,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Error encoding JSON response: %v", err)
+		}
+	}
+}
+
+// swipeManifestHandler serves the PWA manifest for the swipe view
+func swipeManifestHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		manifest := map[string]interface{}{
+			"name":             "Shrike Swipe",
+			"short_name":       "Swipe",
+			"description":      "Swipe through your media library",
+			"start_url":        "/swipe",
+			"display":          "standalone",
+			"orientation":      "portrait",
+			"background_color": "#000000",
+			"theme_color":      "#000000",
+			"icons": []map[string]interface{}{
+				{
+					"src":     "/static/icon-192.png",
+					"sizes":   "192x192",
+					"type":    "image/png",
+					"purpose": "any maskable",
+				},
+				{
+					"src":     "/static/icon-512.png",
+					"sizes":   "512x512",
+					"type":    "image/png",
+					"purpose": "any maskable",
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/manifest+json")
+		_ = json.NewEncoder(w).Encode(manifest)
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Tasks handler – lists all registered tasks/commands
 // -----------------------------------------------------------------------------
 
@@ -1281,6 +1398,9 @@ func main() {
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
 	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
+	mux.HandleFunc("/swipe", renderer.ApplyMiddlewares(swipeHandler(deps)))
+	mux.HandleFunc("/swipe/api", renderer.ApplyMiddlewares(swipeAPIHandler(deps)))
+	mux.HandleFunc("/swipe/manifest.json", swipeManifestHandler())
 	mux.HandleFunc("/config", renderer.ApplyMiddlewares(configHandler(deps)))
 	mux.HandleFunc("/stats", renderer.ApplyMiddlewares(statsHandler(deps)))
 	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))

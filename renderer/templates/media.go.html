@@ -1286,6 +1286,7 @@
               <option value="move">Move Files</option>
               <option value="metadata">Generate Metadata</option>
               <option value="autotag">Auto Tag (ONNX)</option>
+              <option value="lora-dataset">Create LoRA Dataset</option>
             </select>
             <div
               id="metadata-options"
@@ -1500,6 +1501,133 @@
                 target directory.
               </div>
             </div>
+            <div
+              id="lora-dataset-options"
+              style="
+                display: none;
+                flex-direction: column;
+                gap: 10px;
+                margin-top: 10px;
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >Target Directory:</label
+                >
+                <input
+                  type="text"
+                  id="lora-target-directory"
+                  placeholder="e.g., C:\lora\datasets"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >LoRA Name:</label
+                >
+                <input
+                  type="text"
+                  id="lora-name"
+                  placeholder="e.g., my_character_lora"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >Concept Prefix:</label
+                >
+                <input
+                  type="text"
+                  id="lora-concept-prefix"
+                  placeholder="e.g., ohwx person,"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  flex-wrap: wrap;
+                "
+              >
+                <label style="color: #aaa; font-size: 0.9em; min-width: 120px"
+                  >AI Model:</label
+                >
+                <input
+                  type="text"
+                  id="lora-ollama-model"
+                  value="{{.DefaultOllamaModel}}"
+                  placeholder="e.g., llama3.2-vision"
+                  style="
+                    padding: 6px 10px;
+                    background-color: #1e1e1e;
+                    border: 1px solid #555;
+                    color: #d4d4d4;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    flex: 1;
+                    min-width: 200px;
+                  "
+                />
+              </div>
+              <div style="font-size: 0.8em; color: #888; line-height: 1.3">
+                <strong>Note:</strong> Creates a LoRA training dataset folder
+                with images converted to JPG (renamed to UUIDs) and accompanying
+                text files containing descriptions. If a description doesn't
+                exist in the database, it will be generated using the AI model.
+                The concept prefix (e.g., "ohwx person,") will be prepended to
+                each description.
+              </div>
+            </div>
             <button type="submit" id="execute-button">Execute</button>
             <button
               type="button"
@@ -1618,6 +1746,18 @@
         "{{.HasMore}}" === "1" ||
         "{{.HasMore}}" === "True";
       let currentSearchQuery = "{{.SearchQuery}}";
+
+      // Restore last search query if no query parameter provided
+      const LAST_SEARCH_KEY = "media_last_search_query";
+      if (!currentSearchQuery) {
+        const savedQuery = localStorage.getItem(LAST_SEARCH_KEY);
+        if (savedQuery) {
+          // Redirect to apply the saved query
+          const queryParams = new URLSearchParams();
+          queryParams.set("q", savedQuery);
+          window.location.href = `/media?${queryParams}`;
+        }
+      }
 
       // View mode state
       let currentViewMode = localStorage.getItem("mediaViewMode") || "table";
@@ -1764,16 +1904,22 @@
         .addEventListener("change", function () {
           const metadataOptions = document.getElementById("metadata-options");
           const moveOptions = document.getElementById("move-options");
+          const loraDatasetOptions = document.getElementById(
+            "lora-dataset-options"
+          );
 
           // Hide all options first
           metadataOptions.style.display = "none";
           moveOptions.style.display = "none";
+          loraDatasetOptions.style.display = "none";
 
           // Show relevant options
           if (this.value === "metadata") {
             metadataOptions.style.display = "flex";
           } else if (this.value === "move") {
             moveOptions.style.display = "flex";
+          } else if (this.value === "lora-dataset") {
+            loraDatasetOptions.style.display = "flex";
           }
         });
 
@@ -1795,7 +1941,13 @@
             return;
           }
 
-          const applyAllowedTasks = ["metadata", "autotag", "move", "remove"];
+          const applyAllowedTasks = [
+            "metadata",
+            "autotag",
+            "move",
+            "remove",
+            "lora-dataset",
+          ];
           if (
             selectedItems.size === 0 &&
             !(
@@ -1953,6 +2105,58 @@
             } else {
               // Pass comma-separated list to support multi-file in one task
               input = Array.from(selectedItems).join(",");
+            }
+          } else if (selectedTask === "lora-dataset") {
+            command = "lora-dataset";
+            args = [];
+
+            // Get LoRA dataset options
+            const loraTargetDir = document
+              .getElementById("lora-target-directory")
+              .value.trim();
+            const loraName = document.getElementById("lora-name").value.trim();
+            const loraConceptPrefix = document
+              .getElementById("lora-concept-prefix")
+              .value.trim();
+            const loraModel = document
+              .getElementById("lora-ollama-model")
+              .value.trim();
+
+            // Validate required fields
+            if (!loraTargetDir) {
+              alert("Please enter a target directory for the LoRA dataset");
+              return;
+            }
+            if (!loraName) {
+              alert("Please enter a LoRA name");
+              return;
+            }
+
+            // Add arguments
+            args.push("--target", loraTargetDir);
+            args.push("--name", loraName);
+
+            if (loraConceptPrefix) {
+              args.push("--prefix", loraConceptPrefix);
+            }
+
+            if (loraModel) {
+              args.push("--model", loraModel);
+            }
+
+            // If applying to current search, pass the query
+            if (applyToQuery && currentSearchQuery) {
+              try {
+                const encQuery = btoa(
+                  unescape(encodeURIComponent(currentSearchQuery))
+                );
+                args.push("--query64=" + encQuery);
+              } catch (e) {
+                args.push("--query", currentSearchQuery);
+              }
+              input = "";
+            } else {
+              input = Array.from(selectedItems).join("\n");
             }
           }
 
@@ -2478,6 +2682,11 @@
         const queryParams = new URLSearchParams();
         if (query) {
           queryParams.set("q", query);
+          // Save the query to localStorage for next visit
+          localStorage.setItem(LAST_SEARCH_KEY, query);
+        } else {
+          // Clear saved query when explicitly clearing search
+          localStorage.removeItem(LAST_SEARCH_KEY);
         }
 
         // Redirect to reload the page with the new search
@@ -3198,6 +3407,7 @@
           move: "Move Files",
           ingest: "Import Media",
           cleanup: "Clean Up Database",
+          "lora-dataset": "Create LoRA Dataset",
         };
 
         // Status messages

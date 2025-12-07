@@ -1,0 +1,2494 @@
+{{ define "swipe" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Viewport: cover entire screen, prevent zoom, extend into safe areas -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+
+    <!-- iOS Web App (Add to Home Screen) - enables fullscreen mode -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Swipe" />
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
+
+    <!-- Android/Chrome theme -->
+    <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Prevent phone number detection -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- PWA Manifest for standalone mode -->
+    <link rel="manifest" href="/swipe/manifest.json" />
+
+    <title>Shrike Swipe</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      :root {
+        --bg: #000;
+        --accent: #00d9a5;
+        --text: #fff;
+        --text-dim: rgba(255, 255, 255, 0.6);
+        --overlay: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0.8) 0%,
+          rgba(0, 0, 0, 0.4) 20%,
+          transparent 50%
+        );
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-left: env(safe-area-inset-left, 0px);
+        --safe-right: env(safe-area-inset-right, 0px);
+      }
+
+      html {
+        height: 100%;
+        height: -webkit-fill-available;
+        height: 100dvh;
+        overflow: hidden;
+        background: var(--bg);
+      }
+
+      body {
+        min-height: 100%;
+        min-height: -webkit-fill-available;
+        min-height: 100dvh;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: "JetBrains Mono", monospace;
+        color: var(--text);
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-overflow-scrolling: none;
+        /* Prevent pull-to-refresh and overscroll */
+        overscroll-behavior-y: contain;
+        position: fixed;
+        inset: 0;
+      }
+
+      .swipe-container {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .swipe-track {
+        position: absolute;
+        inset: 0;
+        transition: transform 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+        will-change: transform;
+      }
+
+      .swipe-track.dragging {
+        transition: none;
+      }
+
+      .swipe-item {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        overflow: hidden;
+      }
+
+      .swipe-item::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--overlay);
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .swipe-media {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: var(--bg);
+      }
+
+      .swipe-media.cover {
+        object-fit: cover;
+      }
+
+      /* Loading state */
+      .swipe-item.loading .swipe-media {
+        opacity: 0;
+      }
+
+      .swipe-item.loading::before {
+        content: "";
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        z-index: 5;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Info overlay */
+      .swipe-info {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 20px;
+        padding-bottom: calc(20px + var(--safe-bottom));
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .swipe-info-content {
+        max-width: 85%;
+      }
+
+      .swipe-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+
+      .swipe-tag {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 4px 10px;
+        background: rgba(0, 217, 165, 0.15);
+        border: 1px solid rgba(0, 217, 165, 0.3);
+        border-radius: 20px;
+        color: var(--accent);
+        text-transform: lowercase;
+        letter-spacing: 0.3px;
+      }
+
+      .swipe-description {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .swipe-path {
+        font-size: 10px;
+        color: var(--text-dim);
+        margin-top: 8px;
+        opacity: 0.7;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      /* Side actions */
+      .swipe-actions {
+        position: absolute;
+        right: 12px;
+        bottom: 120px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        z-index: 10;
+        padding-bottom: var(--safe-bottom);
+      }
+
+      .action-btn {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        color: var(--text);
+        font-size: 20px;
+      }
+
+      .action-btn:active {
+        transform: scale(0.9);
+        background: rgba(0, 217, 165, 0.3);
+      }
+
+      .action-btn.active {
+        background: var(--accent);
+        color: #000;
+        border-color: var(--accent);
+      }
+
+      /* Progress indicator */
+      .progress-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.1);
+        z-index: 20;
+        padding-top: var(--safe-top);
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: var(--accent);
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+
+      /* Header */
+      .swipe-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: calc(12px + var(--safe-top)) 16px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 15;
+        background: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0.6) 0%,
+          transparent 100%
+        );
+      }
+
+      .swipe-logo {
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--accent);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+
+      .swipe-counter {
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+
+      .header-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: var(--text);
+        font-size: 16px;
+        text-decoration: none;
+        transition: background 0.2s;
+      }
+
+      .header-btn:active {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      /* Empty state */
+      .empty-state {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 40px;
+        z-index: 5;
+      }
+
+      .empty-icon {
+        font-size: 64px;
+        margin-bottom: 24px;
+        opacity: 0.3;
+      }
+
+      .empty-title {
+        font-size: 20px;
+        font-weight: 500;
+        margin-bottom: 8px;
+      }
+
+      .empty-text {
+        font-size: 14px;
+        color: var(--text-dim);
+        max-width: 280px;
+        line-height: 1.5;
+      }
+
+      /* Video controls */
+      .video-controls {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+
+      .swipe-item.paused .video-controls {
+        opacity: 1;
+      }
+
+      .play-icon {
+        width: 80px;
+        height: 80px;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(10px);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+      }
+
+      /* Video scrubber */
+      .video-scrubber {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 0 16px calc(16px + var(--safe-bottom));
+        z-index: 8;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.3s, transform 0.3s;
+        pointer-events: none;
+        background: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0.7) 0%,
+          transparent 100%
+        );
+      }
+
+      .video-scrubber.show {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      .scrubber-time {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-bottom: 8px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .scrubber-track {
+        position: relative;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        touch-action: none;
+      }
+
+      .scrubber-bar {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .scrubber-track:hover .scrubber-bar,
+      .scrubber-track.active .scrubber-bar {
+        height: 6px;
+      }
+
+      .scrubber-progress {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 2px;
+        width: 0%;
+        transition: width 0.1s linear;
+      }
+
+      .scrubber-track.active .scrubber-progress {
+        transition: none;
+      }
+
+      .scrubber-buffered {
+        position: absolute;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        width: 0%;
+      }
+
+      .scrubber-handle {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        background: var(--accent);
+        border-radius: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        left: 0%;
+        opacity: 0;
+        transition: opacity 0.2s, transform 0.15s;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      }
+
+      .scrubber-track:hover .scrubber-handle,
+      .scrubber-track.active .scrubber-handle {
+        opacity: 1;
+      }
+
+      .scrubber-track.active .scrubber-handle {
+        transform: translate(-50%, -50%) scale(1.2);
+      }
+
+      .scrubber-preview {
+        position: absolute;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.9);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text);
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: none;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .scrubber-track.active .scrubber-preview {
+        opacity: 1;
+      }
+
+      /* Swipe hint animation */
+      .swipe-hint {
+        position: absolute;
+        bottom: calc(100px + var(--safe-bottom));
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-dim);
+        font-size: 12px;
+        z-index: 5;
+        animation: fadeInOut 3s ease-in-out forwards;
+        pointer-events: none;
+      }
+
+      .swipe-hint-arrow {
+        font-size: 24px;
+        animation: bounce 1.5s infinite;
+      }
+
+      @keyframes bounce {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-8px);
+        }
+      }
+
+      @keyframes fadeInOut {
+        0% {
+          opacity: 0;
+        }
+        20% {
+          opacity: 1;
+        }
+        80% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          display: none;
+        }
+      }
+
+      /* Filter modal */
+      .filter-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.95);
+        z-index: 100;
+        display: none;
+        flex-direction: column;
+        padding: calc(20px + var(--safe-top)) 20px
+          calc(20px + var(--safe-bottom));
+      }
+
+      .filter-modal.show {
+        display: flex;
+      }
+
+      .filter-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+      }
+
+      .filter-title {
+        font-size: 18px;
+        font-weight: 500;
+      }
+
+      .filter-close {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: var(--text);
+        font-size: 20px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .filter-input {
+        width: 100%;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 14px;
+        outline: none;
+        margin-bottom: 16px;
+      }
+
+      .filter-input:focus {
+        border-color: var(--accent);
+        background: rgba(0, 217, 165, 0.05);
+      }
+
+      .filter-input::placeholder {
+        color: var(--text-dim);
+      }
+
+      .filter-apply {
+        width: 100%;
+        padding: 16px;
+        background: var(--accent);
+        border: none;
+        border-radius: 12px;
+        color: #000;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: auto;
+      }
+
+      .filter-apply:active {
+        opacity: 0.9;
+      }
+
+      .filter-examples {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.8;
+        margin-bottom: 20px;
+      }
+
+      .filter-examples strong {
+        color: var(--accent);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .filter-examples code {
+        display: inline-block;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin: 2px 4px 2px 0;
+      }
+
+      /* Typeahead */
+      .typeahead-wrap {
+        position: relative;
+        width: 100%;
+      }
+
+      .typeahead-dropdown {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        background: rgba(30, 30, 30, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        max-height: 280px;
+        overflow-y: auto;
+        z-index: 1000;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .typeahead-section {
+        padding: 10px 14px 6px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--text-dim);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .typeahead-section::before {
+        content: "";
+        width: 10px;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .typeahead-section::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .typeahead-item {
+        padding: 12px 14px;
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        transition: background 0.15s;
+        border-left: 2px solid transparent;
+        margin: 0 6px;
+        border-radius: 6px;
+      }
+
+      .typeahead-item:hover,
+      .typeahead-item.active {
+        background: rgba(0, 217, 165, 0.1);
+        color: var(--text);
+        border-left-color: var(--accent);
+      }
+
+      .typeahead-item .hint {
+        color: var(--text-dim);
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      .typeahead-item.recent {
+        color: var(--text-dim);
+      }
+
+      .typeahead-item.recent:hover,
+      .typeahead-item.recent.active {
+        background: rgba(100, 200, 255, 0.1);
+        border-left-color: #64c8ff;
+      }
+
+      .typeahead-item .recent-icon,
+      .typeahead-item .suggest-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+        color: var(--text-dim);
+        margin-right: 10px;
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+
+      .typeahead-item:hover .suggest-icon,
+      .typeahead-item.active .suggest-icon {
+        background: rgba(0, 217, 165, 0.2);
+        color: var(--accent);
+      }
+
+      .typeahead-item.recent:hover .recent-icon,
+      .typeahead-item.recent.active .recent-icon {
+        background: rgba(100, 200, 255, 0.2);
+        color: #64c8ff;
+      }
+
+      .typeahead-item .remove-btn {
+        opacity: 0;
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        font-size: 14px;
+        cursor: pointer;
+        padding: 4px 8px;
+        margin-left: 8px;
+        border-radius: 4px;
+        transition: all 0.15s;
+      }
+
+      .typeahead-item:hover .remove-btn,
+      .typeahead-item.active .remove-btn {
+        opacity: 0.5;
+      }
+
+      .typeahead-item .remove-btn:hover {
+        opacity: 1;
+        color: #ff6b6b;
+        background: rgba(255, 107, 107, 0.15);
+      }
+
+      .typeahead-clear-all {
+        padding: 12px 14px;
+        margin: 6px;
+        font-size: 12px;
+        color: var(--text-dim);
+        text-align: center;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all 0.15s;
+        background: transparent;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+      }
+
+      .typeahead-clear-all:hover {
+        background: rgba(255, 107, 107, 0.1);
+        color: #ff6b6b;
+        border-color: rgba(255, 107, 107, 0.3);
+        border-style: solid;
+      }
+
+      /* Double tap heart animation */
+      .heart-animation {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0);
+        font-size: 100px;
+        z-index: 50;
+        pointer-events: none;
+        opacity: 0;
+      }
+
+      .heart-animation.show {
+        animation: heartPop 0.8s ease-out forwards;
+      }
+
+      @keyframes heartPop {
+        0% {
+          transform: translate(-50%, -50%) scale(0);
+          opacity: 1;
+        }
+        15% {
+          transform: translate(-50%, -50%) scale(1.2);
+          opacity: 1;
+        }
+        30% {
+          transform: translate(-50%, -50%) scale(0.95);
+          opacity: 1;
+        }
+        45% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 0;
+        }
+      }
+
+      /* iOS Install Prompt */
+      .install-prompt {
+        position: fixed;
+        bottom: calc(20px + var(--safe-bottom));
+        left: 16px;
+        right: 16px;
+        background: rgba(30, 30, 30, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 16px;
+        z-index: 200;
+        display: none;
+        animation: slideUp 0.4s ease-out;
+      }
+
+      .install-prompt.show {
+        display: block;
+      }
+
+      @keyframes slideUp {
+        from {
+          transform: translateY(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      .install-prompt-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      .install-prompt-title {
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .install-prompt-close {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: var(--text-dim);
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .install-prompt-body {
+        font-size: 13px;
+        color: var(--text-dim);
+        line-height: 1.5;
+      }
+
+      .install-prompt-steps {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .install-prompt-steps .share-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        background: var(--accent);
+        color: #000;
+        border-radius: 6px;
+        font-size: 16px;
+      }
+
+      /* Standalone mode indicator */
+      .standalone-mode .install-prompt {
+        display: none !important;
+      }
+
+      /* Hide header in standalone for more immersion */
+      @media all and (display-mode: standalone) {
+        .swipe-header {
+          padding-top: calc(8px + var(--safe-top));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="swipe-container" id="swipeContainer">
+      <div class="swipe-header">
+        <a href="/media" class="header-btn" title="Back to browser">←</a>
+        <span class="swipe-logo">Swipe</span>
+        <button class="header-btn" id="filterBtn" title="Filter">⚙</button>
+      </div>
+
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+
+      <div class="swipe-track" id="swipeTrack"></div>
+
+      <div class="swipe-actions" id="swipeActions" style="display: none">
+        <button class="action-btn" id="likeBtn" title="Like">♥</button>
+        <button class="action-btn" id="openBtn" title="Open in browser">
+          ↗
+        </button>
+        <button class="action-btn" id="fitBtn" title="Toggle fit mode">
+          ⛶
+        </button>
+      </div>
+
+      <div class="swipe-hint" id="swipeHint">
+        <span class="swipe-hint-arrow">↑</span>
+        <span>Swipe up for more</span>
+      </div>
+
+      <div class="empty-state" id="emptyState" style="display: none">
+        <div class="empty-icon">📷</div>
+        <div class="empty-title">No media found</div>
+        <div class="empty-text">
+          Try adjusting your filter or add some media to your library.
+        </div>
+      </div>
+
+      <div class="heart-animation" id="heartAnimation">❤️</div>
+
+      <!-- iOS Install Prompt -->
+      <div class="install-prompt" id="installPrompt">
+        <div class="install-prompt-header">
+          <div class="install-prompt-title">
+            <span>📱</span>
+            <span>Install Swipe</span>
+          </div>
+          <button class="install-prompt-close" id="installPromptClose">
+            ✕
+          </button>
+        </div>
+        <div class="install-prompt-body">
+          Add to your home screen for a fullscreen experience with no browser
+          bars.
+        </div>
+        <div class="install-prompt-steps">
+          <span class="share-icon">↑</span>
+          <span>Tap Share, then "Add to Home Screen"</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-modal" id="filterModal">
+      <div class="filter-header">
+        <span class="filter-title">Filter Media</span>
+        <button class="filter-close" id="filterClose">✕</button>
+      </div>
+      <div class="typeahead-wrap">
+        <input
+          type="text"
+          class="filter-input"
+          id="filterInput"
+          placeholder='e.g., tag:"landscape" OR path:"*.mp4"'
+          value="{{.SearchQuery}}"
+          autocomplete="off"
+        />
+        <div
+          id="typeahead-dropdown"
+          class="typeahead-dropdown"
+          style="display: none"
+        ></div>
+      </div>
+      <div class="filter-examples">
+        <strong>Examples:</strong>
+        <code>tag:"portrait"</code>
+        <code>path:"*.jpg"</code>
+        <code>size:>1000000</code>
+      </div>
+      <button class="filter-apply" id="filterApply">Apply Filter</button>
+    </div>
+
+    <script>
+      // State
+      let items = [];
+      let currentIndex = 0;
+      let isLoading = false;
+      let isPreloading = false;
+      let hasMore = true;
+      let searchQuery = "{{.SearchQuery}}";
+      let fitMode = "contain"; // contain or cover
+      let likedItems = new Set(
+        JSON.parse(localStorage.getItem("swipeLiked") || "[]")
+      );
+
+      // Generate a session seed for deterministic shuffle
+      // This changes on each page load but stays consistent during pagination
+      const SESSION_SEED_KEY = "swipe_session_seed";
+      let sessionSeed = sessionStorage.getItem(SESSION_SEED_KEY);
+      if (!sessionSeed) {
+        sessionSeed = Date.now().toString();
+        sessionStorage.setItem(SESSION_SEED_KEY, sessionSeed);
+      }
+
+      // DOM elements
+      const container = document.getElementById("swipeContainer");
+      const track = document.getElementById("swipeTrack");
+      const progressFill = document.getElementById("progressFill");
+      const swipeActions = document.getElementById("swipeActions");
+      const emptyState = document.getElementById("emptyState");
+      const swipeHint = document.getElementById("swipeHint");
+      const heartAnimation = document.getElementById("heartAnimation");
+      const filterModal = document.getElementById("filterModal");
+      const filterInput = document.getElementById("filterInput");
+      const likeBtn = document.getElementById("likeBtn");
+      const openBtn = document.getElementById("openBtn");
+      const fitBtn = document.getElementById("fitBtn");
+      const installPrompt = document.getElementById("installPrompt");
+      const installPromptClose = document.getElementById("installPromptClose");
+
+      // iOS/Standalone detection
+      const isIOS =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      const isStandalone =
+        window.navigator.standalone === true ||
+        window.matchMedia("(display-mode: standalone)").matches;
+      const installPromptDismissed = localStorage.getItem(
+        "swipeInstallDismissed"
+      );
+
+      // Show install prompt for iOS Safari users (not in standalone mode)
+      if (isIOS && !isStandalone && !installPromptDismissed) {
+        // Delay showing the prompt slightly for better UX
+        setTimeout(() => {
+          installPrompt.classList.add("show");
+        }, 2000);
+      }
+
+      // Mark body as standalone mode for CSS
+      if (isStandalone) {
+        document.body.classList.add("standalone-mode");
+      }
+
+      // Handle install prompt close
+      installPromptClose.addEventListener("click", () => {
+        installPrompt.classList.remove("show");
+        localStorage.setItem("swipeInstallDismissed", "true");
+      });
+
+      // Touch tracking
+      let touchStartY = 0;
+      let touchCurrentY = 0;
+      let isDragging = false;
+      let lastTapTime = 0;
+
+      // Initialize
+      async function init() {
+        const savedPath = getSavedPosition();
+
+        // Load first item immediately for fast initial render
+        await loadMore(1);
+
+        if (items.length > 0) {
+          // Try to restore to saved position
+          let restoredIndex = 0;
+          if (savedPath) {
+            // Look for the saved path in loaded items
+            let foundIndex = items.findIndex((item) => item.path === savedPath);
+
+            // If not found, keep loading until we find it or run out
+            while (foundIndex === -1 && hasMore && items.length < 200) {
+              await loadMore(20);
+              foundIndex = items.findIndex((item) => item.path === savedPath);
+            }
+
+            if (foundIndex !== -1) {
+              restoredIndex = foundIndex;
+              // Hide the hint since user is resuming
+              if (swipeHint) swipeHint.style.display = "none";
+            }
+          }
+
+          currentIndex = restoredIndex;
+          renderItems();
+          swipeActions.style.display = "flex";
+          updateProgress();
+          updateLikeButton();
+          savePosition(); // Save initial position
+
+          // Load next batch in background for smoother experience
+          if (!savedPath && hasMore) {
+            loadMore(10, true);
+          }
+
+          // Trigger intelligent preloading
+          checkAndPreload();
+        } else {
+          emptyState.style.display = "flex";
+          swipeHint.style.display = "none";
+        }
+      }
+
+      // Load more items from API
+      async function loadMore(limit = 15, preload = false) {
+        // Use separate flag for preloading to allow background loading
+        if (preload) {
+          if (isPreloading || !hasMore) return;
+          isPreloading = true;
+        } else {
+          if (isLoading || !hasMore) return;
+          isLoading = true;
+        }
+
+        try {
+          const params = new URLSearchParams({
+            offset: items.length,
+            limit: limit,
+            seed: sessionSeed,
+          });
+          if (searchQuery) {
+            params.set("q", searchQuery);
+          }
+
+          const response = await fetch(`/swipe/api?${params}`);
+          const data = await response.json();
+
+          items = items.concat(data.items || []);
+          hasMore = data.has_more;
+        } catch (err) {
+          console.error("Failed to load items:", err);
+        } finally {
+          if (preload) {
+            isPreloading = false;
+          } else {
+            isLoading = false;
+          }
+        }
+      }
+
+      // Intelligent preloading - loads next batch when getting close
+      function checkAndPreload() {
+        if (!hasMore || isPreloading) return;
+
+        const itemsRemaining = items.length - currentIndex;
+
+        // Aggressive preloading: load when 5 items remain
+        if (itemsRemaining <= 5) {
+          loadMore(15, true);
+        }
+      }
+
+      // Render current and adjacent items
+      function renderItems() {
+        track.innerHTML = "";
+        scrubberVisible = false;
+
+        // Render previous, current, and next items
+        [-1, 0, 1].forEach((offset) => {
+          const index = currentIndex + offset;
+          if (index < 0 || index >= items.length) return;
+
+          const item = items[index];
+          const el = createItemElement(item, offset);
+          el.style.transform = `translateY(${offset * 100}%)`;
+          track.appendChild(el);
+
+          // Set up video listeners for current item
+          if (offset === 0) {
+            setupVideoListeners(el);
+          }
+        });
+      }
+
+      // Create item DOM element
+      function createItemElement(item, offset) {
+        const div = document.createElement("div");
+        div.className = "swipe-item loading";
+        div.dataset.path = item.path;
+        div.dataset.offset = offset;
+
+        const isVideo = isVideoFile(item.path);
+        let mediaEl;
+
+        if (isVideo) {
+          mediaEl = document.createElement("video");
+          mediaEl.className = `swipe-media ${
+            fitMode === "cover" ? "cover" : ""
+          }`;
+          mediaEl.muted = true;
+          mediaEl.loop = true;
+          mediaEl.playsInline = true;
+          mediaEl.preload = offset === 0 ? "auto" : "metadata";
+
+          mediaEl.onloadeddata = () => {
+            div.classList.remove("loading");
+            if (offset === 0) mediaEl.play().catch(() => {});
+          };
+          mediaEl.onerror = () => {
+            div.classList.remove("loading");
+            div.innerHTML +=
+              '<div style="position:absolute;color:var(--text-dim);font-size:12px;">Failed to load video</div>';
+          };
+
+          mediaEl.src = getMediaUrl(item.path);
+
+          // Add video controls overlay
+          const controls = document.createElement("div");
+          controls.className = "video-controls";
+          controls.innerHTML = '<div class="play-icon">▶</div>';
+          div.appendChild(controls);
+
+          // Add video scrubber
+          const scrubber = document.createElement("div");
+          scrubber.className = "video-scrubber";
+          scrubber.innerHTML = `
+            <div class="scrubber-time">
+              <span class="scrubber-current">0:00</span>
+              <span class="scrubber-duration">0:00</span>
+            </div>
+            <div class="scrubber-track">
+              <div class="scrubber-bar">
+                <div class="scrubber-buffered"></div>
+                <div class="scrubber-progress"></div>
+              </div>
+              <div class="scrubber-handle"></div>
+              <div class="scrubber-preview">0:00</div>
+            </div>
+          `;
+          div.appendChild(scrubber);
+        } else {
+          mediaEl = document.createElement("img");
+          mediaEl.className = `swipe-media ${
+            fitMode === "cover" ? "cover" : ""
+          }`;
+          mediaEl.loading = offset === 0 ? "eager" : "lazy";
+          // Prioritize first image load
+          if (offset === 0) {
+            mediaEl.fetchPriority = "high";
+          }
+
+          mediaEl.onload = () => div.classList.remove("loading");
+          mediaEl.onerror = () => {
+            div.classList.remove("loading");
+            div.innerHTML +=
+              '<div style="position:absolute;color:var(--text-dim);font-size:12px;">Failed to load image</div>';
+          };
+
+          mediaEl.src = getMediaUrl(item.path);
+        }
+
+        div.appendChild(mediaEl);
+
+        // Info overlay
+        const info = document.createElement("div");
+        info.className = "swipe-info";
+        info.innerHTML = `
+          <div class="swipe-info-content">
+            ${
+              item.tags && item.tags.length > 0
+                ? `
+              <div class="swipe-tags">
+                ${item.tags
+                  .slice(0, 5)
+                  .map(
+                    (t) =>
+                      `<span class="swipe-tag">${escapeHtml(t.label)}</span>`
+                  )
+                  .join("")}
+              </div>
+            `
+                : ""
+            }
+            ${
+              item.description
+                ? `<div class="swipe-description">${escapeHtml(
+                    item.description
+                  )}</div>`
+                : ""
+            }
+            <div class="swipe-path">${escapeHtml(getFileName(item.path))}</div>
+          </div>
+        `;
+        div.appendChild(info);
+
+        return div;
+      }
+
+      // Position persistence
+      const POSITION_STORAGE_KEY = "swipe_last_position";
+
+      function savePosition() {
+        if (items.length === 0 || currentIndex >= items.length) return;
+        const currentPath = items[currentIndex].path;
+        try {
+          localStorage.setItem(
+            POSITION_STORAGE_KEY,
+            JSON.stringify({
+              path: currentPath,
+              query: searchQuery,
+              timestamp: Date.now(),
+            })
+          );
+        } catch (e) {}
+      }
+
+      function getSavedPosition() {
+        try {
+          const stored = localStorage.getItem(POSITION_STORAGE_KEY);
+          if (!stored) return null;
+          const data = JSON.parse(stored);
+          // Only restore if same filter query and within last 7 days
+          const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          if (data.query === searchQuery && data.timestamp > weekAgo) {
+            return data.path;
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      // Navigation
+      function goToIndex(index) {
+        if (index < 0 || index >= items.length) return;
+
+        // Pause current video if any
+        const currentVideo = track.querySelector('[data-offset="0"] video');
+        if (currentVideo) currentVideo.pause();
+
+        currentIndex = index;
+        renderItems();
+        updateProgress();
+        updateLikeButton();
+
+        // Save position for session restore
+        savePosition();
+
+        // Play new video if any
+        setTimeout(() => {
+          const newVideo = track.querySelector('[data-offset="0"] video');
+          if (newVideo) newVideo.play().catch(() => {});
+        }, 50);
+
+        // Intelligent preloading
+        checkAndPreload();
+
+        // Hide hint after first swipe
+        if (swipeHint) swipeHint.style.display = "none";
+      }
+
+      function goNext() {
+        if (currentIndex < items.length - 1) {
+          goToIndex(currentIndex + 1);
+        }
+      }
+
+      function goPrev() {
+        if (currentIndex > 0) {
+          goToIndex(currentIndex - 1);
+        }
+      }
+
+      // Update progress bar
+      function updateProgress() {
+        const progress =
+          items.length > 1 ? ((currentIndex + 1) / items.length) * 100 : 100;
+        progressFill.style.width = `${progress}%`;
+      }
+
+      // Update like button state
+      function updateLikeButton() {
+        if (items.length === 0) return;
+        const currentPath = items[currentIndex].path;
+        if (likedItems.has(currentPath)) {
+          likeBtn.classList.add("active");
+        } else {
+          likeBtn.classList.remove("active");
+        }
+      }
+
+      // Toggle like
+      function toggleLike() {
+        if (items.length === 0) return;
+        const currentPath = items[currentIndex].path;
+
+        if (likedItems.has(currentPath)) {
+          likedItems.delete(currentPath);
+        } else {
+          likedItems.add(currentPath);
+          showHeartAnimation();
+        }
+
+        localStorage.setItem("swipeLiked", JSON.stringify([...likedItems]));
+        updateLikeButton();
+      }
+
+      // Show heart animation
+      function showHeartAnimation() {
+        heartAnimation.classList.remove("show");
+        void heartAnimation.offsetWidth; // Trigger reflow
+        heartAnimation.classList.add("show");
+      }
+
+      // Toggle fit mode
+      function toggleFitMode() {
+        fitMode = fitMode === "contain" ? "cover" : "contain";
+        const mediaEls = track.querySelectorAll(".swipe-media");
+        mediaEls.forEach((el) => {
+          if (fitMode === "cover") {
+            el.classList.add("cover");
+          } else {
+            el.classList.remove("cover");
+          }
+        });
+      }
+
+      // Open current item in browser
+      function openInBrowser() {
+        if (items.length === 0) return;
+        const currentPath = items[currentIndex].path;
+        window.open(
+          `/media?q=path:"${encodeURIComponent(currentPath)}"`,
+          "_blank"
+        );
+      }
+
+      // Toggle video pause/play
+      function toggleVideoPause() {
+        const item = track.querySelector('[data-offset="0"]');
+        if (!item) return;
+        const video = item.querySelector("video");
+        if (!video) return;
+
+        if (video.paused) {
+          video.play();
+          item.classList.remove("paused");
+          hideScrubber();
+        } else {
+          video.pause();
+          item.classList.add("paused");
+          showScrubber();
+        }
+      }
+
+      // Video scrubber state
+      let scrubberVisible = false;
+      let scrubberHideTimeout = null;
+      let isScrubbing = false;
+      let scrubStartX = 0;
+
+      function formatTime(seconds) {
+        if (!isFinite(seconds) || isNaN(seconds)) return "0:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
+      }
+
+      function showScrubber() {
+        const item = track.querySelector('[data-offset="0"]');
+        if (!item) return;
+        const scrubber = item.querySelector(".video-scrubber");
+        if (!scrubber) return;
+
+        scrubber.classList.add("show");
+        scrubberVisible = true;
+
+        // Auto-hide after 3 seconds if video is playing
+        clearTimeout(scrubberHideTimeout);
+        const video = item.querySelector("video");
+        if (video && !video.paused) {
+          scrubberHideTimeout = setTimeout(hideScrubber, 3000);
+        }
+      }
+
+      function hideScrubber() {
+        if (isScrubbing) return;
+        const item = track.querySelector('[data-offset="0"]');
+        if (!item) return;
+        const scrubber = item.querySelector(".video-scrubber");
+        if (!scrubber) return;
+
+        scrubber.classList.remove("show");
+        scrubberVisible = false;
+        clearTimeout(scrubberHideTimeout);
+      }
+
+      function updateScrubberProgress() {
+        const item = track.querySelector('[data-offset="0"]');
+        if (!item) return;
+        const video = item.querySelector("video");
+        const scrubber = item.querySelector(".video-scrubber");
+        if (!video || !scrubber) return;
+
+        const progress = scrubber.querySelector(".scrubber-progress");
+        const handle = scrubber.querySelector(".scrubber-handle");
+        const currentTime = scrubber.querySelector(".scrubber-current");
+        const duration = scrubber.querySelector(".scrubber-duration");
+        const buffered = scrubber.querySelector(".scrubber-buffered");
+
+        if (video.duration) {
+          const percent = (video.currentTime / video.duration) * 100;
+          progress.style.width = `${percent}%`;
+          handle.style.left = `${percent}%`;
+          currentTime.textContent = formatTime(video.currentTime);
+          duration.textContent = formatTime(video.duration);
+
+          // Update buffered progress
+          if (video.buffered.length > 0) {
+            const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+            const bufferedPercent = (bufferedEnd / video.duration) * 100;
+            buffered.style.width = `${bufferedPercent}%`;
+          }
+        }
+      }
+
+      function setupVideoListeners(item) {
+        const video = item.querySelector("video");
+        if (!video) return;
+
+        video.addEventListener("timeupdate", updateScrubberProgress);
+        video.addEventListener("loadedmetadata", updateScrubberProgress);
+      }
+
+      function handleScrubStart(e) {
+        const scrubberTrack = e.target.closest(".scrubber-track");
+        if (!scrubberTrack) return;
+
+        e.stopPropagation();
+        isScrubbing = true;
+        scrubberTrack.classList.add("active");
+        clearTimeout(scrubberHideTimeout);
+
+        const touch = e.touches ? e.touches[0] : e;
+        scrubStartX = touch.clientX;
+
+        handleScrubMove(e);
+      }
+
+      function handleScrubMove(e) {
+        if (!isScrubbing) return;
+
+        const item = track.querySelector('[data-offset="0"]');
+        if (!item) return;
+
+        const scrubberTrack = item.querySelector(".scrubber-track");
+        const video = item.querySelector("video");
+        const preview = item.querySelector(".scrubber-preview");
+        if (!scrubberTrack || !video || !video.duration) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const touch = e.touches ? e.touches[0] : e;
+        const rect = scrubberTrack.getBoundingClientRect();
+        let percent = (touch.clientX - rect.left) / rect.width;
+        percent = Math.max(0, Math.min(1, percent));
+
+        const newTime = percent * video.duration;
+        video.currentTime = newTime;
+
+        // Update preview
+        if (preview) {
+          preview.textContent = formatTime(newTime);
+          preview.style.left = `${percent * 100}%`;
+        }
+
+        updateScrubberProgress();
+      }
+
+      function handleScrubEnd(e) {
+        if (!isScrubbing) return;
+
+        isScrubbing = false;
+
+        const item = track.querySelector('[data-offset="0"]');
+        if (item) {
+          const scrubberTrack = item.querySelector(".scrubber-track");
+          if (scrubberTrack) {
+            scrubberTrack.classList.remove("active");
+          }
+        }
+
+        // Auto-hide after scrubbing if video is playing
+        const video = item?.querySelector("video");
+        if (video && !video.paused) {
+          scrubberHideTimeout = setTimeout(hideScrubber, 2000);
+        }
+      }
+
+      // Touch handlers
+      let touchStartX = 0;
+
+      function onTouchStart(e) {
+        // Ignore touches on UI elements
+        if (
+          e.target.closest(".swipe-actions") ||
+          e.target.closest(".swipe-header") ||
+          e.target.closest(".filter-modal") ||
+          e.target.closest(".install-prompt")
+        )
+          return;
+
+        // Handle scrubber touches separately
+        if (e.target.closest(".scrubber-track")) {
+          handleScrubStart(e);
+          return;
+        }
+
+        // Don't start swipe if touching scrubber area
+        if (e.target.closest(".video-scrubber")) {
+          return;
+        }
+
+        touchStartY = e.touches[0].clientY;
+        touchStartX = e.touches[0].clientX;
+        touchCurrentY = touchStartY;
+        isDragging = true;
+        track.classList.add("dragging");
+
+        // Check for double tap
+        const now = Date.now();
+        if (now - lastTapTime < 300) {
+          toggleLike();
+          isDragging = false;
+          track.classList.remove("dragging");
+        }
+        lastTapTime = now;
+      }
+
+      function onTouchMove(e) {
+        // Handle scrubber dragging
+        if (isScrubbing) {
+          handleScrubMove(e);
+          return;
+        }
+
+        if (!isDragging) return;
+        e.preventDefault();
+
+        touchCurrentY = e.touches[0].clientY;
+        const deltaY = touchCurrentY - touchStartY;
+        const height = container.clientHeight;
+
+        // Calculate drag percentage
+        const dragPercent = (deltaY / height) * 100;
+
+        // Move all items
+        const itemEls = track.querySelectorAll(".swipe-item");
+        itemEls.forEach((el) => {
+          const baseOffset = parseInt(el.dataset.offset) * 100;
+          el.style.transform = `translateY(${baseOffset + dragPercent}%)`;
+        });
+      }
+
+      function onTouchEnd(e) {
+        // Handle scrubber end
+        if (isScrubbing) {
+          handleScrubEnd(e);
+          return;
+        }
+
+        if (!isDragging) return;
+
+        isDragging = false;
+        track.classList.remove("dragging");
+
+        const deltaY = touchCurrentY - touchStartY;
+        const deltaX = e.changedTouches
+          ? e.changedTouches[0].clientX - touchStartX
+          : 0;
+        const height = container.clientHeight;
+        const threshold = height * 0.15; // 15% threshold
+
+        if (deltaY < -threshold && currentIndex < items.length - 1) {
+          // Swiped up - go to next
+          goNext();
+        } else if (deltaY > threshold && currentIndex > 0) {
+          // Swiped down - go to previous
+          goPrev();
+        } else {
+          // Snap back - reset transforms without re-rendering
+          const itemEls = track.querySelectorAll(".swipe-item");
+          itemEls.forEach((el) => {
+            const baseOffset = parseInt(el.dataset.offset) * 100;
+            el.style.transform = `translateY(${baseOffset}%)`;
+          });
+
+          // Check for tap on video (small movement)
+          if (Math.abs(deltaY) < 10 && Math.abs(deltaX) < 10) {
+            const item = track.querySelector('[data-offset="0"]');
+            const video = item?.querySelector("video");
+            if (video) {
+              // Toggle scrubber visibility on tap, or toggle pause if scrubber visible
+              if (scrubberVisible) {
+                toggleVideoPause();
+              } else {
+                showScrubber();
+                // Reset auto-hide timer
+                clearTimeout(scrubberHideTimeout);
+                if (!video.paused) {
+                  scrubberHideTimeout = setTimeout(hideScrubber, 3000);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Keyboard navigation
+      function onKeyDown(e) {
+        switch (e.key) {
+          case "ArrowUp":
+          case "ArrowLeft":
+            e.preventDefault();
+            goPrev();
+            break;
+          case "ArrowDown":
+          case "ArrowRight":
+          case " ":
+            e.preventDefault();
+            goNext();
+            break;
+          case "l":
+            toggleLike();
+            break;
+          case "f":
+            toggleFitMode();
+            break;
+          case "Escape":
+            if (filterModal.classList.contains("show")) {
+              filterModal.classList.remove("show");
+            }
+            break;
+        }
+      }
+
+      // Filter modal
+      document.getElementById("filterBtn").addEventListener("click", () => {
+        filterModal.classList.add("show");
+        filterInput.focus();
+      });
+
+      document.getElementById("filterClose").addEventListener("click", () => {
+        filterModal.classList.remove("show");
+      });
+
+      function applyFilter() {
+        const newQuery = filterInput.value.trim();
+        // Save to recent searches
+        if (newQuery) {
+          addRecentSearch(newQuery);
+        }
+        if (newQuery !== searchQuery) {
+          searchQuery = newQuery;
+          items = [];
+          currentIndex = 0;
+          hasMore = true;
+          // Generate new session seed for the new filter
+          sessionSeed = Date.now().toString();
+          sessionStorage.setItem(SESSION_SEED_KEY, sessionSeed);
+          init();
+        }
+        filterModal.classList.remove("show");
+      }
+
+      document
+        .getElementById("filterApply")
+        .addEventListener("click", applyFilter);
+
+      // Action buttons
+      likeBtn.addEventListener("click", toggleLike);
+      openBtn.addEventListener("click", openInBrowser);
+      fitBtn.addEventListener("click", toggleFitMode);
+
+      // Utility functions
+      function isVideoFile(path) {
+        const ext = path.split(".").pop().toLowerCase();
+        return [
+          "mp4",
+          "webm",
+          "ogg",
+          "avi",
+          "mov",
+          "wmv",
+          "flv",
+          "mkv",
+          "m4v",
+        ].includes(ext);
+      }
+
+      function getMediaUrl(path) {
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+          return path;
+        }
+        return `/media/file?path=${encodeURIComponent(path)}`;
+      }
+
+      function getFileName(path) {
+        return path.split(/[/\\]/).pop();
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function escapeAttr(text) {
+        if (!text) return "";
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      // -----------------------------
+      // Typeahead with recent searches
+      // -----------------------------
+      const RECENT_STORAGE_KEY = "shrike_recent_searches";
+      const MAX_RECENT_SEARCHES = 10;
+
+      function getRecentSearches() {
+        try {
+          const stored = localStorage.getItem(RECENT_STORAGE_KEY);
+          if (!stored) return [];
+          const parsed = JSON.parse(stored);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function saveRecentSearches(searches) {
+        try {
+          localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(searches));
+        } catch (e) {}
+      }
+
+      function addRecentSearch(query) {
+        if (!query || !query.trim()) return;
+        query = query.trim();
+        let recent = getRecentSearches();
+        recent = recent.filter((s) => s !== query);
+        recent.unshift(query);
+        if (recent.length > MAX_RECENT_SEARCHES) {
+          recent = recent.slice(0, MAX_RECENT_SEARCHES);
+        }
+        saveRecentSearches(recent);
+      }
+
+      function removeRecentSearch(query) {
+        let recent = getRecentSearches();
+        recent = recent.filter((s) => s !== query);
+        saveRecentSearches(recent);
+      }
+
+      function clearAllRecentSearches() {
+        saveRecentSearches([]);
+      }
+
+      (function initTypeahead() {
+        const input = document.getElementById("filterInput");
+        const dropdown = document.getElementById("typeahead-dropdown");
+        if (!input || !dropdown) return;
+
+        let typeaheadItems = [];
+        let activeIndex = -1;
+        let debounceTimer = null;
+        let lastReqId = 0;
+
+        function hideDropdown() {
+          dropdown.style.display = "none";
+          dropdown.innerHTML = "";
+          typeaheadItems = [];
+          activeIndex = -1;
+        }
+
+        function renderDropdown(recentItems, suggestionItems, showClearAll) {
+          const hasRecent = recentItems && recentItems.length > 0;
+          const hasSuggestions = suggestionItems && suggestionItems.length > 0;
+
+          if (!hasRecent && !hasSuggestions) {
+            hideDropdown();
+            return;
+          }
+
+          typeaheadItems = [];
+          let html = "";
+
+          if (hasRecent) {
+            html += '<div class="typeahead-section">Recent Searches</div>';
+            recentItems.forEach((it) => {
+              const idx = typeaheadItems.length;
+              typeaheadItems.push({
+                text: it.text,
+                kind: "recent",
+                isRecent: true,
+              });
+              const cls =
+                idx === activeIndex
+                  ? "typeahead-item recent active"
+                  : "typeahead-item recent";
+              html += `<div class="${cls}" data-index="${idx}">
+                <span><span class="recent-icon">↺</span>${escapeHtml(
+                  it.text
+                )}</span>
+                <button type="button" class="remove-btn" data-remove="${escapeAttr(
+                  it.text
+                )}" title="Remove">✕</button>
+              </div>`;
+            });
+          }
+
+          if (hasSuggestions) {
+            if (hasRecent) {
+              html += '<div class="typeahead-section">Suggestions</div>';
+            }
+            suggestionItems.forEach((it) => {
+              const idx = typeaheadItems.length;
+              typeaheadItems.push({
+                text: it.text,
+                kind: it.kind,
+                hint: it.hint,
+              });
+              const cls =
+                idx === activeIndex
+                  ? "typeahead-item active"
+                  : "typeahead-item";
+              const hint = it.hint
+                ? `<span class="hint">${escapeHtml(it.hint)}</span>`
+                : "";
+              let icon = "→";
+              if (it.kind === "filter") icon = "⚙";
+              else if (it.kind === "value") icon = "◇";
+              else if (it.kind === "key") icon = ":";
+              html += `<div class="${cls}" data-index="${idx}"><span><span class="suggest-icon">${icon}</span>${escapeHtml(
+                it.text
+              )}</span>${hint}</div>`;
+            });
+          }
+
+          if (hasRecent && showClearAll) {
+            html +=
+              '<div class="typeahead-clear-all" data-clear-all="true">Clear search history</div>';
+          }
+
+          dropdown.style.display = "block";
+          dropdown.innerHTML = html;
+
+          Array.from(dropdown.querySelectorAll(".typeahead-item")).forEach(
+            (el) => {
+              el.addEventListener("mousedown", (e) => {
+                const removeBtn = e.target.closest(".remove-btn");
+                if (removeBtn) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const queryToRemove = removeBtn.getAttribute("data-remove");
+                  if (queryToRemove) {
+                    removeRecentSearch(queryToRemove);
+                    showRecentSearches();
+                  }
+                  return;
+                }
+                e.preventDefault();
+                const idx = Number(el.getAttribute("data-index"));
+                if (!Number.isNaN(idx)) applySuggestion(typeaheadItems[idx]);
+              });
+            }
+          );
+
+          const clearAllBtn = dropdown.querySelector(".typeahead-clear-all");
+          if (clearAllBtn) {
+            clearAllBtn.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              clearAllRecentSearches();
+              hideDropdown();
+            });
+          }
+        }
+
+        function showRecentSearches() {
+          const inputValue = input.value.trim();
+          const recent = getRecentSearches();
+
+          if (inputValue === "") {
+            if (recent.length === 0) {
+              buildSuggestions();
+              return;
+            }
+            const recentItems = recent.map((s) => ({ text: s }));
+            activeIndex = -1;
+            renderDropdown(recentItems, [], true);
+          } else {
+            buildSuggestions();
+          }
+        }
+
+        function moveActive(delta) {
+          if (typeaheadItems.length === 0) return;
+          if (activeIndex === -1) {
+            activeIndex = delta > 0 ? 0 : typeaheadItems.length - 1;
+          } else {
+            activeIndex =
+              (activeIndex + delta + typeaheadItems.length) %
+              typeaheadItems.length;
+          }
+          const recentItems = typeaheadItems
+            .filter((it) => it.isRecent)
+            .map((it) => ({ text: it.text }));
+          const suggestionItems = typeaheadItems.filter((it) => !it.isRecent);
+          renderDropdown(
+            recentItems,
+            suggestionItems,
+            input.value.trim() === ""
+          );
+        }
+
+        function currentTokenInfo() {
+          const value = input.value;
+          const caret = input.selectionStart || 0;
+          let inQuotes = false;
+          let start = 0;
+          for (let i = 0; i < caret; i++) {
+            const c = value[i];
+            if (c === '"') inQuotes = !inQuotes;
+            if (!inQuotes && c === " " && i + 1 <= caret) start = i + 1;
+          }
+          inQuotes = false;
+          let end = value.length;
+          for (let i = start; i < value.length; i++) {
+            const c = value[i];
+            if (c === '"') inQuotes = !inQuotes;
+            if (!inQuotes && c === " ") {
+              end = i;
+              break;
+            }
+          }
+          const token = value.slice(start, caret);
+          const fullToken = value.slice(start, end);
+          let negate = fullToken.startsWith("NOT ");
+          const noNot = negate ? fullToken.slice(4) : fullToken;
+          let key = "";
+          let stage = "key";
+          if (token.length === 0) {
+            const prev = value.slice(0, start);
+            stage = prev.trimEnd().endsWith(":") ? "value" : "key";
+          }
+          const colonIdxInToken = noNot.indexOf(":");
+          if (colonIdxInToken >= 0) {
+            key = noNot.slice(0, colonIdxInToken).trim().toLowerCase();
+            stage = "value";
+          } else {
+            key = noNot.trim().toLowerCase();
+            stage = "key";
+          }
+          let valuePrefix = "";
+          let valueStartAbs = end;
+          let hasOpeningQuote = false;
+          let hasClosingQuote = false;
+          if (stage === "value") {
+            let q = false;
+            let colonAbs = -1;
+            for (let i = start; i < end; i++) {
+              const c = value[i];
+              if (c === '"') q = !q;
+              if (!q && c === ":") {
+                colonAbs = i;
+                break;
+              }
+            }
+            if (colonAbs >= 0) {
+              valueStartAbs = colonAbs + 1;
+              while (valueStartAbs < end && value[valueStartAbs] === " ")
+                valueStartAbs++;
+              if (valueStartAbs < end && value[valueStartAbs] === '"') {
+                hasOpeningQuote = true;
+              }
+              if (end > valueStartAbs && value[end - 1] === '"') {
+                hasClosingQuote = true;
+              }
+              const prefixStart = hasOpeningQuote
+                ? valueStartAbs + 1
+                : valueStartAbs;
+              valuePrefix = value.slice(prefixStart, caret);
+            }
+          }
+          return {
+            start,
+            end,
+            caret,
+            token,
+            key,
+            stage,
+            negate,
+            valuePrefix,
+            valueStartAbs,
+            hasOpeningQuote,
+            hasClosingQuote,
+          };
+        }
+
+        function shouldQuoteValueForKey(key) {
+          return (
+            key === "tag" ||
+            key === "category" ||
+            key === "path" ||
+            key === "pathdir" ||
+            key === "description" ||
+            key === "hash"
+          );
+        }
+
+        function buildSuggestions() {
+          const info = currentTokenInfo();
+          const value = input.value;
+          const reqId = ++lastReqId;
+          const inputTrimmed = value.trim();
+
+          const allRecent = getRecentSearches();
+          let matchingRecent = [];
+          if (inputTrimmed !== "") {
+            const lowerInput = inputTrimmed.toLowerCase();
+            matchingRecent = allRecent
+              .filter(
+                (s) =>
+                  s.toLowerCase().includes(lowerInput) && s !== inputTrimmed
+              )
+              .slice(0, 3);
+          }
+
+          if (info.stage === "key") {
+            fetch("/media/suggest?kind=filters")
+              .then((r) => r.json())
+              .then((data) => {
+                if (reqId !== lastReqId) return;
+                const pref = info.key || "";
+                const arr = (data.suggestions || []).filter((s) =>
+                  s.startsWith(pref)
+                );
+                if (
+                  (info.token.trim() === "" && value.trim() !== "") ||
+                  info.token.toUpperCase() === "A" ||
+                  info.token.toUpperCase() === "O"
+                ) {
+                  arr.unshift("AND", "OR");
+                }
+                const suggestionItems = arr.map((s) => ({
+                  text: s,
+                  kind: "key",
+                }));
+                const recentItems = matchingRecent.map((s) => ({ text: s }));
+                activeIndex = -1;
+                renderDropdown(recentItems, suggestionItems, false);
+              })
+              .catch(() => hideDropdown());
+            return;
+          }
+
+          const k = info.key;
+          if (k === "exists") {
+            const vals = ["true", "false"];
+            const pref = info.valuePrefix.toLowerCase();
+            const arr = vals.filter((v) => v.startsWith(pref));
+            const suggestionItems = arr.map((s) => ({
+              text: s,
+              kind: "value",
+            }));
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex = -1;
+            renderDropdown(recentItems, suggestionItems, false);
+            return;
+          }
+          if (k === "tags") {
+            const vals = ["none"];
+            const pref = info.valuePrefix.toLowerCase();
+            const arr = vals.filter((v) => v.startsWith(pref));
+            const suggestionItems = arr.map((s) => ({
+              text: s,
+              kind: "value",
+            }));
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex = -1;
+            renderDropdown(recentItems, suggestionItems, false);
+            return;
+          }
+          if (
+            k === "size" ||
+            k === "width" ||
+            k === "height" ||
+            k === "tagcount"
+          ) {
+            const ops = [">=", "<=", ">", "<"];
+            const pref = info.valuePrefix;
+            const arr = ops.filter((o) => o.startsWith(pref));
+            const suggestionItems = arr.map((s) => ({
+              text: s,
+              kind: "value",
+              hint: "operator",
+            }));
+            const recentItems = matchingRecent.map((s) => ({ text: s }));
+            activeIndex = -1;
+            renderDropdown(recentItems, suggestionItems, false);
+            return;
+          }
+          let kind = null;
+          if (k === "tag") kind = "tag";
+          else if (k === "category") kind = "category";
+          else if (k === "path") kind = "path";
+          else if (k === "pathdir") kind = "pathdir";
+          if (!kind) {
+            if (matchingRecent.length > 0) {
+              const recentItems = matchingRecent.map((s) => ({ text: s }));
+              activeIndex = -1;
+              renderDropdown(recentItems, [], false);
+            } else {
+              hideDropdown();
+            }
+            return;
+          }
+          const encPrefix = encodeURIComponent(info.valuePrefix || "");
+          fetch(`/media/suggest?kind=${kind}&prefix=${encPrefix}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (reqId !== lastReqId) return;
+              const arr = data.suggestions || [];
+              const suggestionItems = arr.map((s) => ({
+                text: s,
+                kind: "value",
+              }));
+              const recentItems = matchingRecent.map((s) => ({ text: s }));
+              activeIndex = -1;
+              renderDropdown(recentItems, suggestionItems, false);
+            })
+            .catch(() => hideDropdown());
+        }
+
+        function applySuggestion(sug) {
+          if (!sug) return;
+
+          if (sug.isRecent) {
+            input.value = sug.text;
+            const newCaret = sug.text.length;
+            input.setSelectionRange(newCaret, newCaret);
+            hideDropdown();
+            input.focus();
+            return;
+          }
+
+          const info = currentTokenInfo();
+          const value = input.value;
+          let insertText = sug.text;
+
+          if (info.stage === "key") {
+            insertText = (info.negate ? "NOT " : "") + insertText + ":";
+            const before = value.slice(0, info.start);
+            const after = value.slice(info.end);
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length;
+            input.setSelectionRange(newCaret, newCaret);
+          } else if (info.stage === "value") {
+            const needsQuote =
+              shouldQuoteValueForKey(info.key) ||
+              /\s/.test(insertText) ||
+              info.key === "tag" ||
+              info.key === "path" ||
+              info.key === "pathdir" ||
+              info.key === "category";
+            let replaceStart = info.valueStartAbs;
+            if (info.hasOpeningQuote) {
+              replaceStart = info.valueStartAbs + 1;
+            }
+            if (needsQuote) {
+              const openQuote = info.hasOpeningQuote ? "" : '"';
+              insertText = openQuote + insertText + '"';
+            }
+            const replaceEnd = info.end;
+            const before = value.slice(0, replaceStart);
+            const after = value.slice(replaceEnd);
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length;
+            input.setSelectionRange(newCaret, newCaret);
+          } else {
+            const before = value.slice(0, info.start);
+            const after = value.slice(info.end);
+            insertText = insertText.toUpperCase();
+            input.value = before + insertText + after;
+            const newCaret = (before + insertText).length + 1;
+            input.setSelectionRange(newCaret, newCaret);
+          }
+
+          hideDropdown();
+          input.focus();
+        }
+
+        input.addEventListener("keydown", (e) => {
+          if (dropdown.style.display === "block") {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              moveActive(1);
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              moveActive(-1);
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              if (activeIndex >= 0 && typeaheadItems[activeIndex]) {
+                e.preventDefault();
+                applySuggestion(typeaheadItems[activeIndex]);
+                return;
+              }
+            }
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              hideDropdown();
+              return;
+            }
+          }
+          // If Enter and dropdown not active, apply filter
+          if (
+            e.key === "Enter" &&
+            (dropdown.style.display !== "block" || activeIndex < 0)
+          ) {
+            applyFilter();
+          }
+        });
+
+        input.addEventListener("input", () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            if (input.value.trim() === "") {
+              showRecentSearches();
+            } else {
+              buildSuggestions();
+            }
+          }, 150);
+        });
+
+        input.addEventListener("focus", () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(showRecentSearches, 100);
+        });
+
+        input.addEventListener("blur", () => {
+          setTimeout(() => hideDropdown(), 150);
+        });
+      })();
+
+      // Event listeners
+      container.addEventListener("touchstart", onTouchStart, {
+        passive: false,
+      });
+      container.addEventListener("touchmove", onTouchMove, { passive: false });
+      container.addEventListener("touchend", onTouchEnd);
+      document.addEventListener("keydown", onKeyDown);
+
+      // Mouse support for scrubber (desktop)
+      container.addEventListener("mousedown", (e) => {
+        if (e.target.closest(".scrubber-track")) {
+          handleScrubStart(e);
+        }
+      });
+      document.addEventListener("mousemove", (e) => {
+        if (isScrubbing) {
+          handleScrubMove(e);
+        }
+      });
+      document.addEventListener("mouseup", (e) => {
+        if (isScrubbing) {
+          handleScrubEnd(e);
+        }
+      });
+
+      // Click on video to toggle scrubber (desktop)
+      container.addEventListener("click", (e) => {
+        if (
+          e.target.closest(".swipe-actions") ||
+          e.target.closest(".swipe-header") ||
+          e.target.closest(".filter-modal") ||
+          e.target.closest(".video-scrubber") ||
+          e.target.closest(".install-prompt")
+        ) {
+          return;
+        }
+
+        const item = track.querySelector('[data-offset="0"]');
+        const video = item?.querySelector("video");
+        if (video) {
+          if (scrubberVisible) {
+            toggleVideoPause();
+          } else {
+            showScrubber();
+            clearTimeout(scrubberHideTimeout);
+            if (!video.paused) {
+              scrubberHideTimeout = setTimeout(hideScrubber, 3000);
+            }
+          }
+        }
+      });
+
+      // Mouse wheel support for desktop
+      let wheelTimeout;
+      container.addEventListener(
+        "wheel",
+        (e) => {
+          if (e.target.closest(".filter-modal")) return;
+          e.preventDefault();
+
+          clearTimeout(wheelTimeout);
+          wheelTimeout = setTimeout(() => {
+            if (e.deltaY > 0) {
+              goNext();
+            } else {
+              goPrev();
+            }
+          }, 50);
+        },
+        { passive: false }
+      );
+
+      // Start
+      init();
+    </script>
+  </body>
+</html>
+{{ end }}

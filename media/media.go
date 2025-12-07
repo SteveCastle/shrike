@@ -514,6 +514,237 @@ func evaluateExistsConditions(item MediaItem, conditions []SearchCondition) bool
 	return true // All exists conditions match
 }
 
+// GetRandomItems fetches media items in a randomized order with pagination and optional search
+// The randomization is seeded per-session to maintain consistency during scrolling
+// This function is designed for the TikTok-like swipe view
+// Only items with at least one tag are included
+func GetRandomItems(db *sql.DB, offset, limit int, searchQuery string, seed int64) ([]MediaItem, bool, error) {
+	// Use a deterministic but shuffled ordering based on a hash of the path
+	// This provides consistent pagination while appearing random
+	// You can later modify this to use different algorithms (trending, recent, AI-curated, etc.)
+	baseQuery := `SELECT DISTINCT m.path, m.description, m.size, m.hash, m.width, m.height FROM media m`
+	var joinClause string
+	// Order by a hash of the path with session seed to get pseudo-random but consistent ordering
+	// Uses SQLite's built-in functions for a deterministic shuffle
+	// The seed changes per page load but remains consistent during pagination within a session
+	orderBy := fmt.Sprintf(` ORDER BY ((m.rowid + %d) * 2654435761) %% 2147483647`, seed)
+
+	// Parse search query if provided
+	sq, err := parseSearchQuery(searchQuery)
+	if err != nil {
+		log.Printf("Search query parsing failed: %v", err)
+		sq = nil
+	}
+
+	// Build WHERE clause and check if we need tag joins
+	whereClause, whereArgs, needsTagJoin, existsConditions := buildWhereClause(sq)
+
+	// Always require items to have at least one tag
+	hasTagsFilter := `EXISTS (SELECT 1 FROM media_tag_by_category mtbc WHERE mtbc.media_path = m.path)`
+	if whereClause == "" {
+		whereClause = "WHERE " + hasTagsFilter
+	} else {
+		whereClause = whereClause + " AND " + hasTagsFilter
+	}
+
+	// Add JOIN if needed for tag/category searches
+	if needsTagJoin {
+		joinClause = ` JOIN media_tag_by_category mtbc ON m.path = mtbc.media_path`
+	}
+
+	// If there are exists conditions, we need to implement existence-aware pagination
+	if len(existsConditions) > 0 {
+		return getRandomItemsWithExistenceFilter(db, baseQuery, joinClause, whereClause, whereArgs, orderBy, offset, limit, existsConditions)
+	}
+
+	// Standard pagination when no exists conditions
+	limitClause := ` LIMIT ? OFFSET ?`
+	var query string
+	var args []interface{}
+
+	// Construct full query
+	if whereClause != "" {
+		query = baseQuery + joinClause + " " + whereClause + orderBy + limitClause
+		args = append(whereArgs, limit+1, offset)
+	} else {
+		query = baseQuery + orderBy + limitClause
+		args = []interface{}{limit + 1, offset}
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	var items []MediaItem
+	var mediaPaths []string
+	for rows.Next() {
+		var item MediaItem
+		err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash, &item.Width, &item.Height)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// Handle nullable size field
+		if item.Size.Valid {
+			item.FormattedSize = FormatBytes(item.Size.Int64)
+		} else {
+			item.FormattedSize = "Unknown"
+		}
+
+		items = append(items, item)
+		mediaPaths = append(mediaPaths, item.Path)
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+		mediaPaths = mediaPaths[:limit]
+	}
+
+	// Fetch tags for all media items
+	// For performance, skip tags if only requesting 1 item (initial fast load)
+	if limit > 1 || len(items) > 1 {
+		tagMap, err := GetTags(db, mediaPaths)
+		if err != nil {
+			log.Printf("Error fetching media tags: %v", err)
+		} else {
+			for i := range items {
+				if tags, exists := tagMap[items[i].Path]; exists {
+					items[i].Tags = tags
+				} else {
+					items[i].Tags = []MediaTag{}
+				}
+			}
+		}
+	} else {
+		// For single-item fast loads, initialize empty tags
+		for i := range items {
+			items[i].Tags = []MediaTag{}
+		}
+	}
+
+	// Check file existence for all media items concurrently
+	existenceMap := CheckFilesExistConcurrent(mediaPaths)
+	for i := range items {
+		if exists, found := existenceMap[items[i].Path]; found {
+			items[i].Exists = exists
+		} else {
+			items[i].Exists = false
+		}
+	}
+
+	return items, hasMore, nil
+}
+
+// getRandomItemsWithExistenceFilter handles randomized pagination when exists conditions are present
+// Note: whereClause passed to this function should already include the "has tags" filter from GetRandomItems
+func getRandomItemsWithExistenceFilter(db *sql.DB, baseQuery, joinClause, whereClause string, whereArgs []interface{}, orderBy string, offset, limit int, existsConditions []SearchCondition) ([]MediaItem, bool, error) {
+	const batchSize = 100
+	var allMatchingItems []MediaItem
+	var dbOffset = 0
+
+	for len(allMatchingItems) < offset+limit {
+		limitClause := ` LIMIT ? OFFSET ?`
+		var query string
+		var args []interface{}
+
+		// whereClause should always be non-empty here since GetRandomItems adds the has-tags filter
+		if whereClause != "" {
+			query = baseQuery + joinClause + " " + whereClause + orderBy + limitClause
+			args = append(whereArgs, batchSize, dbOffset)
+		} else {
+			query = baseQuery + orderBy + limitClause
+			args = []interface{}{batchSize, dbOffset}
+		}
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return nil, false, err
+		}
+
+		var batchItems []MediaItem
+		var batchPaths []string
+		for rows.Next() {
+			var item MediaItem
+			err := rows.Scan(&item.Path, &item.Description, &item.Size, &item.Hash, &item.Width, &item.Height)
+			if err != nil {
+				rows.Close()
+				return nil, false, err
+			}
+
+			if item.Size.Valid {
+				item.FormattedSize = FormatBytes(item.Size.Int64)
+			} else {
+				item.FormattedSize = "Unknown"
+			}
+
+			batchItems = append(batchItems, item)
+			batchPaths = append(batchPaths, item.Path)
+		}
+		rows.Close()
+
+		if len(batchItems) == 0 {
+			break
+		}
+
+		tagMap, err := GetTags(db, batchPaths)
+		if err != nil {
+			log.Printf("Error fetching media tags: %v", err)
+		} else {
+			for i := range batchItems {
+				if tags, exists := tagMap[batchItems[i].Path]; exists {
+					batchItems[i].Tags = tags
+				} else {
+					batchItems[i].Tags = []MediaTag{}
+				}
+			}
+		}
+
+		existenceMap := CheckFilesExistConcurrent(batchPaths)
+		for i := range batchItems {
+			if exists, found := existenceMap[batchItems[i].Path]; found {
+				batchItems[i].Exists = exists
+			} else {
+				batchItems[i].Exists = false
+			}
+		}
+
+		for _, item := range batchItems {
+			if evaluateExistsConditions(item, existsConditions) {
+				allMatchingItems = append(allMatchingItems, item)
+			}
+		}
+
+		dbOffset += batchSize
+
+		if len(batchItems) < batchSize {
+			break
+		}
+	}
+
+	totalMatching := len(allMatchingItems)
+	hasMore := totalMatching > offset+limit
+
+	startIdx := offset
+	if startIdx > totalMatching {
+		startIdx = totalMatching
+	}
+
+	endIdx := startIdx + limit
+	if endIdx > totalMatching {
+		endIdx = totalMatching
+	}
+
+	var resultItems []MediaItem
+	if startIdx < endIdx {
+		resultItems = allMatchingItems[startIdx:endIdx]
+	}
+
+	return resultItems, hasMore, nil
+}
+
 // GetItems fetches media items from the database with pagination and search
 func GetItems(db *sql.DB, offset, limit int, searchQuery string) ([]MediaItem, bool, error) {
 	baseQuery := `SELECT DISTINCT m.path, m.description, m.size, m.hash, m.width, m.height FROM media m`

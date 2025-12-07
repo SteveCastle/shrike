@@ -31,6 +31,7 @@ func init() {
 	RegisterTask("metadata", "Generate Metadata", metadataTask)
 	RegisterTask("move", "Move Media Files", moveTask)
 	RegisterTask("autotag", "Auto Tag (ONNX)", autotagTask)
+	RegisterTask("lora-dataset", "Create LoRA Dataset", loraDatasetTask)
 }
 
 func RegisterTask(id, name string, fn func(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error) {
