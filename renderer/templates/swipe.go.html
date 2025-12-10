@@ -1133,9 +1133,9 @@
       let hasMore = true;
       let searchQuery = "{{.SearchQuery}}";
       let fitMode = "contain"; // contain or cover
-      let likedItems = new Set(
-        JSON.parse(localStorage.getItem("swipeLiked") || "[]")
-      );
+      // Liked items are now managed via database tags (Swipe/Favorites)
+      // This Set is used for UI state only
+      let likedItems = new Set();
 
       // Generate a session seed for deterministic shuffle
       // This changes on each page load but stays consistent during pagination
@@ -1564,30 +1564,69 @@
       }
 
       // Update like button state
-      function updateLikeButton() {
+      async function updateLikeButton() {
         if (items.length === 0) return;
         const currentPath = items[currentIndex].path;
-        if (likedItems.has(currentPath)) {
-          likeBtn.classList.add("active");
-        } else {
-          likeBtn.classList.remove("active");
+
+        // Check if the current item has the Favorites tag in Swipe category
+        try {
+          const response = await fetch(
+            `/media/has-tag?media_path=${encodeURIComponent(
+              currentPath
+            )}&tag_label=Favorites&category_label=Swipe`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.has_tag) {
+              likeBtn.classList.add("active");
+              likedItems.add(currentPath);
+            } else {
+              likeBtn.classList.remove("active");
+              likedItems.delete(currentPath);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to check like status:", err);
         }
       }
 
       // Toggle like
-      function toggleLike() {
+      async function toggleLike() {
         if (items.length === 0) return;
         const currentPath = items[currentIndex].path;
 
-        if (likedItems.has(currentPath)) {
-          likedItems.delete(currentPath);
-        } else {
-          likedItems.add(currentPath);
-          showHeartAnimation();
-        }
+        const isCurrentlyLiked = likedItems.has(currentPath);
+        const action = isCurrentlyLiked ? "remove" : "add";
 
-        localStorage.setItem("swipeLiked", JSON.stringify([...likedItems]));
-        updateLikeButton();
+        try {
+          const response = await fetch("/media/tag", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              media_path: currentPath,
+              tag_label: "Favorites",
+              category_label: "Swipe",
+              action: action,
+            }),
+          });
+
+          if (response.ok) {
+            if (isCurrentlyLiked) {
+              likedItems.delete(currentPath);
+              likeBtn.classList.remove("active");
+            } else {
+              likedItems.add(currentPath);
+              likeBtn.classList.add("active");
+              showHeartAnimation();
+            }
+          } else {
+            console.error("Failed to toggle like:", await response.text());
+          }
+        } catch (err) {
+          console.error("Failed to toggle like:", err);
+        }
       }
 
       // Show heart animation
@@ -2296,7 +2335,7 @@
         tagSearch.value = ""; // Clear search input
         loadAllTags();
         renderSelectedTags();
-        tagSearch.focus();
+        // Don't auto-focus search to avoid keyboard pop-up on mobile
       });
 
       document.getElementById("filterClose").addEventListener("click", () => {

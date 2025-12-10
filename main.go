@@ -684,6 +684,84 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// mediaTagHandler handles adding/removing tags from media items
+func mediaTagHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		type tagRequest struct {
+			MediaPath     string `json:"media_path"`
+			TagLabel      string `json:"tag_label"`
+			CategoryLabel string `json:"category_label"`
+			Action        string `json:"action"` // "add" or "remove"
+		}
+
+		var req tagRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if req.MediaPath == "" || req.TagLabel == "" || req.CategoryLabel == "" {
+			http.Error(w, "media_path, tag_label, and category_label are required", http.StatusBadRequest)
+			return
+		}
+
+		if req.Action != "add" && req.Action != "remove" {
+			http.Error(w, "action must be 'add' or 'remove'", http.StatusBadRequest)
+			return
+		}
+
+		var err error
+		if req.Action == "add" {
+			err = media.AddTag(deps.DB, req.MediaPath, req.TagLabel, req.CategoryLabel)
+		} else {
+			err = media.RemoveTag(deps.DB, req.MediaPath, req.TagLabel, req.CategoryLabel)
+		}
+
+		if err != nil {
+			log.Printf("tag error: %v", err)
+			http.Error(w, "Failed to update tag", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
+// mediaHasTagHandler checks if a media item has a specific tag
+func mediaHasTagHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		mediaPath := r.URL.Query().Get("media_path")
+		tagLabel := r.URL.Query().Get("tag_label")
+		categoryLabel := r.URL.Query().Get("category_label")
+
+		if mediaPath == "" || tagLabel == "" || categoryLabel == "" {
+			http.Error(w, "media_path, tag_label, and category_label are required", http.StatusBadRequest)
+			return
+		}
+
+		hasTag, err := media.HasTag(deps.DB, mediaPath, tagLabel, categoryLabel)
+		if err != nil {
+			log.Printf("has tag error: %v", err)
+			http.Error(w, "Failed to check tag", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"has_tag": hasTag})
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Swipe view handlers – TikTok-like mobile experience
 // -----------------------------------------------------------------------------
@@ -1426,6 +1504,8 @@ func main() {
 	mux.HandleFunc("/media/api", renderer.ApplyMiddlewares(mediaAPIHandler(deps)))
 	mux.HandleFunc("/media/file", renderer.ApplyMiddlewares(mediaFileHandler(deps)))
 	mux.HandleFunc("/media/suggest", renderer.ApplyMiddlewares(mediaSuggestHandler(deps)))
+	mux.HandleFunc("/media/tag", renderer.ApplyMiddlewares(mediaTagHandler(deps)))
+	mux.HandleFunc("/media/has-tag", renderer.ApplyMiddlewares(mediaHasTagHandler(deps)))
 	mux.HandleFunc("/swipe", renderer.ApplyMiddlewares(swipeHandler(deps)))
 	mux.HandleFunc("/swipe/api", renderer.ApplyMiddlewares(swipeAPIHandler(deps)))
 	mux.HandleFunc("/swipe/manifest.json", swipeManifestHandler())

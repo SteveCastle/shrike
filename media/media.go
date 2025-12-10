@@ -1437,6 +1437,80 @@ func SuggestCategoryLabels(db *sql.DB, prefix string, limit int) ([]string, erro
 	return out, nil
 }
 
+// AddTag adds a tag with category to a media item
+func AddTag(db *sql.DB, mediaPath, tagLabel, categoryLabel string) error {
+	if db == nil {
+		return fmt.Errorf("database connection not available")
+	}
+	if mediaPath == "" || tagLabel == "" || categoryLabel == "" {
+		return fmt.Errorf("mediaPath, tagLabel, and categoryLabel are required")
+	}
+
+	// Check if tag already exists for this media
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM media_tag_by_category
+		WHERE media_path = ? AND tag_label = ? AND category_label = ?
+	`, mediaPath, tagLabel, categoryLabel).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check existing tag: %w", err)
+	}
+
+	// If tag already exists, no need to insert
+	if count > 0 {
+		return nil
+	}
+
+	// Insert the tag
+	_, err = db.Exec(`
+		INSERT INTO media_tag_by_category (media_path, tag_label, category_label)
+		VALUES (?, ?, ?)
+	`, mediaPath, tagLabel, categoryLabel)
+	if err != nil {
+		return fmt.Errorf("failed to insert tag: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveTag removes a tag from a media item
+func RemoveTag(db *sql.DB, mediaPath, tagLabel, categoryLabel string) error {
+	if db == nil {
+		return fmt.Errorf("database connection not available")
+	}
+	if mediaPath == "" || tagLabel == "" || categoryLabel == "" {
+		return fmt.Errorf("mediaPath, tagLabel, and categoryLabel are required")
+	}
+
+	_, err := db.Exec(`
+		DELETE FROM media_tag_by_category
+		WHERE media_path = ? AND tag_label = ? AND category_label = ?
+	`, mediaPath, tagLabel, categoryLabel)
+	if err != nil {
+		return fmt.Errorf("failed to remove tag: %w", err)
+	}
+
+	return nil
+}
+
+// HasTag checks if a media item has a specific tag in a category
+func HasTag(db *sql.DB, mediaPath, tagLabel, categoryLabel string) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("database connection not available")
+	}
+
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM media_tag_by_category
+		WHERE media_path = ? AND tag_label = ? AND category_label = ?
+	`, mediaPath, tagLabel, categoryLabel).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check tag: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // SuggestPaths returns distinct media paths matching a prefix (case-insensitive for ASCII)
 func SuggestPaths(db *sql.DB, prefix string, limit int) ([]string, error) {
 	if db == nil {
