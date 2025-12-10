@@ -34,7 +34,7 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		paths = parseInputPaths(raw)
 	}
 
-	if err := ensureCategoryExists(q.Db, "Suggested", 0); err != nil {
+	if err := EnsureCategoryExists(q.Db, "Suggested", 0); err != nil {
 		q.PushJobStdout(j.ID, "autotag: failed to ensure category: "+err.Error())
 		q.ErrorJob(j.ID)
 		return err

@@ -1437,7 +1437,54 @@ func SuggestCategoryLabels(db *sql.DB, prefix string, limit int) ([]string, erro
 	return out, nil
 }
 
+// EnsureCategoryExists inserts the category if it doesn't already exist.
+// The category table is expected to have columns: label, weight
+func EnsureCategoryExists(db *sql.DB, label string, weight int) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fmt.Errorf("EnsureCategoryExists: empty label")
+	}
+	_, err := db.Exec(`INSERT OR IGNORE INTO category (label, weight) VALUES (?, ?)`, label, weight)
+	if err != nil {
+		return fmt.Errorf("EnsureCategoryExists: insert %s: %w", label, err)
+	}
+	return nil
+}
+
+// TagInfo represents a tag with its category
+type TagInfo struct {
+	Label    string
+	Category string
+}
+
+// EnsureTagsExist inserts any missing tags into the tag table.
+// The tag table is expected to have columns: label, category_label
+func EnsureTagsExist(db *sql.DB, tags []TagInfo) error {
+	if len(tags) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("EnsureTagsExist: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	insertSQL := `INSERT OR IGNORE INTO tag (label, category_label) VALUES (?, ?)`
+	for _, t := range tags {
+		if strings.TrimSpace(t.Label) == "" {
+			continue
+		}
+		if _, err := tx.Exec(insertSQL, t.Label, t.Category); err != nil {
+			return fmt.Errorf("EnsureTagsExist: insert %s/%s: %w", t.Category, t.Label, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("EnsureTagsExist: commit: %w", err)
+	}
+	return nil
+}
+
 // AddTag adds a tag with category to a media item
+// Ensures the category and tag exist in their respective tables before assignment
 func AddTag(db *sql.DB, mediaPath, tagLabel, categoryLabel string) error {
 	if db == nil {
 		return fmt.Errorf("database connection not available")
@@ -1461,7 +1508,18 @@ func AddTag(db *sql.DB, mediaPath, tagLabel, categoryLabel string) error {
 		return nil
 	}
 
-	// Insert the tag
+	// Ensure the category exists in the category table (default weight: 0)
+	if err := EnsureCategoryExists(db, categoryLabel, 0); err != nil {
+		return fmt.Errorf("failed to ensure category exists: %w", err)
+	}
+
+	// Ensure the tag exists in the tag table
+	tagInfo := []TagInfo{{Label: tagLabel, Category: categoryLabel}}
+	if err := EnsureTagsExist(db, tagInfo); err != nil {
+		return fmt.Errorf("failed to ensure tag exists: %w", err)
+	}
+
+	// Insert the tag assignment
 	_, err = db.Exec(`
 		INSERT INTO media_tag_by_category (media_path, tag_label, category_label)
 		VALUES (?, ?, ?)

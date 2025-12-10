@@ -3,7 +3,8 @@ package tasks
 import (
 	"database/sql"
 	"fmt"
-	"strings"
+
+	"github.com/stevecastle/shrike/media"
 )
 
 // TagInfo represents a tag with its category for the auto-tagging system
@@ -12,18 +13,11 @@ type TagInfo struct {
 	Category string
 }
 
-// ensureCategoryExists inserts the category if it doesn't already exist.
+// EnsureCategoryExists inserts the category if it doesn't already exist.
 // The category table is expected to have columns: label, weight
-func ensureCategoryExists(db *sql.DB, label string, weight int) error {
-	label = strings.TrimSpace(label)
-	if label == "" {
-		return fmt.Errorf("ensureCategoryExists: empty label")
-	}
-	_, err := db.Exec(`INSERT OR IGNORE INTO category (label, weight) VALUES (?, ?)`, label, weight)
-	if err != nil {
-		return fmt.Errorf("ensureCategoryExists: insert %s: %w", label, err)
-	}
-	return nil
+// This is a wrapper around media.EnsureCategoryExists for backwards compatibility
+func EnsureCategoryExists(db *sql.DB, label string, weight int) error {
+	return media.EnsureCategoryExists(db, label, weight)
 }
 
 // getAllAvailableTags fetches all unique tags and their categories from the database
@@ -80,7 +74,7 @@ func removeExistingTagsForFile(db *sql.DB, filePath string) error {
 
 // insertTagsForFile inserts tags for a file into the database
 func insertTagsForFile(db *sql.DB, filePath string, tags []TagInfo) error {
-	if err := ensureTagsExist(db, tags); err != nil {
+	if err := EnsureTagsExist(db, tags); err != nil {
 		return err
 	}
 	stmt := `INSERT INTO media_tag_by_category (media_path, tag_label, category_label) VALUES (?, ?, ?)`
@@ -92,28 +86,20 @@ func insertTagsForFile(db *sql.DB, filePath string, tags []TagInfo) error {
 	return nil
 }
 
-// ensureTagsExist inserts any missing tags into the tag table.
+// EnsureTagsExist inserts any missing tags into the tag table.
 // The tag table is expected to have columns: label, category_label
-func ensureTagsExist(db *sql.DB, tags []TagInfo) error {
+// This is a wrapper around media.EnsureTagsExist for backwards compatibility
+func EnsureTagsExist(db *sql.DB, tags []TagInfo) error {
 	if len(tags) == 0 {
 		return nil
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("ensureTagsExist: begin tx: %w", err)
-	}
-	defer tx.Rollback()
-	insertSQL := `INSERT OR IGNORE INTO tag (label, category_label) VALUES (?, ?)`
-	for _, t := range tags {
-		if strings.TrimSpace(t.Label) == "" {
-			continue
-		}
-		if _, err := tx.Exec(insertSQL, t.Label, t.Category); err != nil {
-			return fmt.Errorf("ensureTagsExist: insert %s/%s: %w", t.Category, t.Label, err)
+	// Convert tasks.TagInfo to media.TagInfo
+	mediaTags := make([]media.TagInfo, len(tags))
+	for i, t := range tags {
+		mediaTags[i] = media.TagInfo{
+			Label:    t.Label,
+			Category: t.Category,
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("ensureTagsExist: commit: %w", err)
-	}
-	return nil
+	return media.EnsureTagsExist(db, mediaTags)
 }

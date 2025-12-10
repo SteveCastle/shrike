@@ -1169,14 +1169,60 @@
       let selectedTags = new Set();
       let filteredTags = [];
 
+      // Storage key for persisting selected tags
+      const SELECTED_TAGS_KEY = "swipe_selected_tags";
+
+      // Build tag query from selected tags
+      function buildTagQuery() {
+        if (selectedTags.size === 0) return "";
+        const tagQueries = Array.from(selectedTags).map(
+          (tag) => `tag:"${tag}"`
+        );
+        return tagQueries.join(" OR ");
+      }
+
+      // Load selected tags from localStorage
+      function loadSelectedTags() {
+        try {
+          const stored = localStorage.getItem(SELECTED_TAGS_KEY);
+          if (stored) {
+            const tags = JSON.parse(stored);
+            tags.forEach(tag => selectedTags.add(tag));
+          }
+        } catch (e) {
+          console.error("Failed to load selected tags:", e);
+        }
+      }
+
+      // Save selected tags to localStorage
+      function saveSelectedTags() {
+        try {
+          localStorage.setItem(SELECTED_TAGS_KEY, JSON.stringify(Array.from(selectedTags)));
+        } catch (e) {
+          console.error("Failed to save selected tags:", e);
+        }
+      }
+
       // Parse initial search query for tags
       (function parseInitialQuery() {
-        if (!searchQuery) return;
-        // Match patterns like tag:"something" in the query
-        const tagPattern = /tag:"([^"]+)"/g;
-        let match;
-        while ((match = tagPattern.exec(searchQuery)) !== null) {
-          selectedTags.add(match[1]);
+        // First, try to load from localStorage
+        loadSelectedTags();
+
+        // If no tags in localStorage and we have a search query, parse it
+        if (selectedTags.size === 0 && searchQuery) {
+          // Match patterns like tag:"something" in the query
+          const tagPattern = /tag:"([^"]+)"/g;
+          let match;
+          while ((match = tagPattern.exec(searchQuery)) !== null) {
+            selectedTags.add(match[1]);
+          }
+          // Save parsed tags to localStorage
+          if (selectedTags.size > 0) {
+            saveSelectedTags();
+          }
+        } else if (selectedTags.size > 0) {
+          // If we loaded tags from localStorage, update searchQuery to match
+          searchQuery = buildTagQuery();
         }
       })();
 
@@ -2291,18 +2337,21 @@
         } else {
           selectedTags.add(tag);
         }
+        saveSelectedTags();
         renderSelectedTags();
         renderTagList();
       }
 
       function removeTag(tag) {
         selectedTags.delete(tag);
+        saveSelectedTags();
         renderSelectedTags();
         renderTagList();
       }
 
       function clearAllTags() {
         selectedTags.clear();
+        saveSelectedTags();
         renderSelectedTags();
         renderTagList();
       }
@@ -2319,14 +2368,6 @@
           );
         }
         renderTagList();
-      }
-
-      function buildTagQuery() {
-        if (selectedTags.size === 0) return "";
-        const tagQueries = Array.from(selectedTags).map(
-          (tag) => `tag:"${tag}"`
-        );
-        return tagQueries.join(" OR ");
       }
 
       // Filter modal
@@ -2357,6 +2398,7 @@
 
       function applyFilter() {
         const newQuery = buildTagQuery();
+        saveSelectedTags();
         if (newQuery !== searchQuery) {
           searchQuery = newQuery;
           items = [];
