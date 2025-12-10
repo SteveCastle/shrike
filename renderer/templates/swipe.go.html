@@ -90,17 +90,27 @@
         position: fixed;
         inset: 0;
         overflow: hidden;
+        perspective: 1000px;
+        perspective-origin: center center;
       }
 
       .swipe-track {
         position: absolute;
         inset: 0;
-        transition: transform 0.35s cubic-bezier(0.23, 1, 0.32, 1);
         will-change: transform;
+        transform-style: preserve-3d;
       }
 
       .swipe-track.dragging {
         transition: none;
+      }
+
+      .swipe-track.transitioning {
+        transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      .swipe-track.snapping {
+        transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
       }
 
       .swipe-item {
@@ -112,6 +122,30 @@
         justify-content: center;
         background: var(--bg);
         overflow: hidden;
+        transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                    opacity 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                    filter 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        will-change: transform, opacity;
+      }
+
+      .swipe-item.dragging {
+        transition: none;
+      }
+
+      /* Stack effect for adjacent items - subtle brightness/blur for depth */
+      .swipe-item[data-offset="1"] {
+        filter: brightness(0.65) blur(1px);
+      }
+
+      .swipe-item[data-offset="-1"] {
+        filter: brightness(0.8) blur(0.5px);
+      }
+
+      /* Smoother transitions when not dragging */
+      .swipe-item:not(.dragging) {
+        transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                    opacity 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                    filter 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
       }
 
       .swipe-item::after {
@@ -128,6 +162,8 @@
         height: 100%;
         object-fit: contain;
         background: var(--bg);
+        will-change: transform;
+        touch-action: none;
       }
 
       .swipe-media.cover {
@@ -573,26 +609,35 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       }
 
       .filter-title {
-        font-size: 18px;
-        font-weight: 500;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
       }
 
       .filter-close {
         width: 36px;
         height: 36px;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.1);
-        border: none;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         color: var(--text);
-        font-size: 20px;
+        font-size: 18px;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
+        transition: all 0.15s;
+      }
+
+      .filter-close:active {
+        background: rgba(255, 255, 255, 0.15);
+        transform: scale(0.95);
       }
 
       .filter-input {
@@ -625,193 +670,231 @@
         border-radius: 12px;
         color: #000;
         font-family: inherit;
-        font-size: 14px;
-        font-weight: 500;
+        font-size: 15px;
+        font-weight: 600;
         cursor: pointer;
         margin-top: auto;
+        transition: all 0.2s;
+        box-shadow: 0 4px 12px rgba(0, 217, 165, 0.3);
       }
 
       .filter-apply:active {
-        opacity: 0.9;
+        transform: scale(0.98);
+        box-shadow: 0 2px 8px rgba(0, 217, 165, 0.2);
       }
 
-      .filter-examples {
-        font-size: 12px;
-        color: var(--text-dim);
-        line-height: 1.8;
+      /* Selected tags chips */
+      .selected-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
         margin-bottom: 20px;
-      }
-
-      .filter-examples strong {
-        color: var(--accent);
-        display: block;
-        margin-bottom: 6px;
-      }
-
-      .filter-examples code {
-        display: inline-block;
-        background: rgba(255, 255, 255, 0.05);
-        padding: 2px 8px;
-        border-radius: 4px;
-        margin: 2px 4px 2px 0;
-      }
-
-      /* Typeahead */
-      .typeahead-wrap {
-        position: relative;
-        width: 100%;
-      }
-
-      .typeahead-dropdown {
-        position: absolute;
-        top: calc(100% + 4px);
-        left: 0;
-        right: 0;
-        background: rgba(30, 30, 30, 0.98);
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        max-height: 280px;
-        overflow-y: auto;
-        z-index: 1000;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        min-height: 56px;
+        align-items: center;
       }
 
-      .typeahead-section {
-        padding: 10px 14px 6px;
+      .selected-tags:empty::before {
+        content: "No tags selected";
+        color: var(--text-dim);
+        font-size: 13px;
+        opacity: 0.6;
+      }
+
+      .selected-tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        background: rgba(0, 217, 165, 0.15);
+        border: 1px solid rgba(0, 217, 165, 0.3);
+        border-radius: 20px;
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 500;
+        animation: chipAppear 0.2s ease-out;
+      }
+
+      @keyframes chipAppear {
+        from {
+          opacity: 0;
+          transform: scale(0.8);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .selected-tag-chip button {
+        background: none;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        padding: 0;
+        font-size: 16px;
+        line-height: 1;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .selected-tag-chip button:active {
+        opacity: 1;
+      }
+
+      .clear-all-tags {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 12px;
+        background: rgba(255, 107, 107, 0.1);
+        border: 1px solid rgba(255, 107, 107, 0.3);
+        border-radius: 20px;
+        color: #ff6b6b;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .clear-all-tags:active {
+        background: rgba(255, 107, 107, 0.2);
+      }
+
+      /* Tag search */
+      .tag-search {
+        width: 100%;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 14px;
+        outline: none;
+        margin-bottom: 16px;
+        transition: all 0.2s;
+      }
+
+      .tag-search:focus {
+        border-color: var(--accent);
+        background: rgba(0, 217, 165, 0.08);
+        box-shadow: 0 0 0 3px rgba(0, 217, 165, 0.1);
+      }
+
+      .tag-search::placeholder {
+        color: var(--text-dim);
+      }
+
+      .tag-list {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        margin-bottom: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.3);
+        /* Smooth scrolling on iOS */
+        -webkit-overflow-scrolling: touch;
+      }
+
+      /* Hide scrollbar on webkit browsers */
+      .tag-list::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .tag-list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .tag-list::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+
+      .tag-list::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .tag-category-section {
+        margin-bottom: 12px;
+      }
+
+      .tag-category-section:last-child {
+        margin-bottom: 0;
+      }
+
+      .tag-category-header {
+        position: sticky;
+        top: 0;
+        background: rgba(0, 0, 0, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        padding: 10px 16px;
         font-size: 10px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.8px;
-        color: var(--text-dim);
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        letter-spacing: 1.2px;
+        color: var(--accent);
+        border-bottom: 1px solid rgba(0, 217, 165, 0.15);
+        z-index: 10;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
 
-      .typeahead-section::before {
-        content: "";
-        width: 10px;
-        height: 1px;
-        background: rgba(255, 255, 255, 0.1);
+      .tag-category-items {
+        padding: 8px;
       }
 
-      .typeahead-section::after {
-        content: "";
-        flex: 1;
-        height: 1px;
-        background: rgba(255, 255, 255, 0.1);
-      }
-
-      .typeahead-item {
+      .tag-item {
         padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid transparent;
+        border-radius: 10px;
         color: var(--text-dim);
         cursor: pointer;
+        margin-bottom: 6px;
+        transition: all 0.15s;
         display: flex;
+        align-items: center;
         justify-content: space-between;
-        align-items: center;
-        font-size: 13px;
-        transition: background 0.15s;
-        border-left: 2px solid transparent;
-        margin: 0 6px;
-        border-radius: 6px;
+        font-size: 14px;
       }
 
-      .typeahead-item:hover,
-      .typeahead-item.active {
-        background: rgba(0, 217, 165, 0.1);
-        color: var(--text);
-        border-left-color: var(--accent);
+      .tag-item:last-child {
+        margin-bottom: 0;
       }
 
-      .typeahead-item .hint {
-        color: var(--text-dim);
-        font-size: 11px;
-        background: rgba(255, 255, 255, 0.05);
-        padding: 2px 6px;
-        border-radius: 4px;
+      .tag-item:active {
+        transform: scale(0.98);
       }
 
-      .typeahead-item.recent {
-        color: var(--text-dim);
-      }
-
-      .typeahead-item.recent:hover,
-      .typeahead-item.recent.active {
-        background: rgba(100, 200, 255, 0.1);
-        border-left-color: #64c8ff;
-      }
-
-      .typeahead-item .recent-icon,
-      .typeahead-item .suggest-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-        color: var(--text-dim);
-        margin-right: 10px;
-        font-size: 11px;
-        flex-shrink: 0;
-      }
-
-      .typeahead-item:hover .suggest-icon,
-      .typeahead-item.active .suggest-icon {
-        background: rgba(0, 217, 165, 0.2);
+      .tag-item.selected {
+        background: rgba(0, 217, 165, 0.15);
+        border-color: rgba(0, 217, 165, 0.3);
         color: var(--accent);
       }
 
-      .typeahead-item.recent:hover .recent-icon,
-      .typeahead-item.recent.active .recent-icon {
-        background: rgba(100, 200, 255, 0.2);
-        color: #64c8ff;
+      .tag-item .tag-count {
+        font-size: 11px;
+        opacity: 0.6;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 2px 8px;
+        border-radius: 10px;
       }
 
-      .typeahead-item .remove-btn {
-        opacity: 0;
-        background: none;
-        border: none;
-        color: var(--text-dim);
-        font-size: 14px;
-        cursor: pointer;
-        padding: 4px 8px;
-        margin-left: 8px;
-        border-radius: 4px;
-        transition: all 0.15s;
+      .tag-item.selected .tag-count {
+        background: rgba(0, 217, 165, 0.2);
       }
 
-      .typeahead-item:hover .remove-btn,
-      .typeahead-item.active .remove-btn {
-        opacity: 0.5;
-      }
-
-      .typeahead-item .remove-btn:hover {
-        opacity: 1;
-        color: #ff6b6b;
-        background: rgba(255, 107, 107, 0.15);
-      }
-
-      .typeahead-clear-all {
-        padding: 12px 14px;
-        margin: 6px;
-        font-size: 12px;
-        color: var(--text-dim);
+      .tag-list-empty {
         text-align: center;
-        cursor: pointer;
-        border-radius: 6px;
-        transition: all 0.15s;
-        background: transparent;
-        border: 1px dashed rgba(255, 255, 255, 0.1);
-      }
-
-      .typeahead-clear-all:hover {
-        background: rgba(255, 107, 107, 0.1);
-        color: #ff6b6b;
-        border-color: rgba(255, 107, 107, 0.3);
-        border-style: solid;
+        padding: 40px 20px;
+        color: var(--text-dim);
+        font-size: 13px;
       }
 
       /* Double tap heart animation */
@@ -1018,30 +1101,26 @@
 
     <div class="filter-modal" id="filterModal">
       <div class="filter-header">
-        <span class="filter-title">Filter Media</span>
+        <span class="filter-title">Filter by Tags</span>
         <button class="filter-close" id="filterClose">✕</button>
       </div>
-      <div class="typeahead-wrap">
-        <input
-          type="text"
-          class="filter-input"
-          id="filterInput"
-          placeholder='e.g., tag:"landscape" OR path:"*.mp4"'
-          value="{{.SearchQuery}}"
-          autocomplete="off"
-        />
-        <div
-          id="typeahead-dropdown"
-          class="typeahead-dropdown"
-          style="display: none"
-        ></div>
+
+      <div class="selected-tags" id="selectedTags">
+        <!-- Selected tag chips will be inserted here -->
       </div>
-      <div class="filter-examples">
-        <strong>Examples:</strong>
-        <code>tag:"portrait"</code>
-        <code>path:"*.jpg"</code>
-        <code>size:>1000000</code>
+
+      <input
+        type="text"
+        class="tag-search"
+        id="tagSearch"
+        placeholder="Search tags..."
+        autocomplete="off"
+      />
+
+      <div class="tag-list" id="tagList">
+        <div class="tag-list-empty">Loading tags...</div>
       </div>
+
       <button class="filter-apply" id="filterApply">Apply Filter</button>
     </div>
 
@@ -1076,12 +1155,30 @@
       const swipeHint = document.getElementById("swipeHint");
       const heartAnimation = document.getElementById("heartAnimation");
       const filterModal = document.getElementById("filterModal");
-      const filterInput = document.getElementById("filterInput");
+      const tagSearch = document.getElementById("tagSearch");
+      const tagList = document.getElementById("tagList");
+      const selectedTagsContainer = document.getElementById("selectedTags");
       const likeBtn = document.getElementById("likeBtn");
       const openBtn = document.getElementById("openBtn");
       const fitBtn = document.getElementById("fitBtn");
       const installPrompt = document.getElementById("installPrompt");
       const installPromptClose = document.getElementById("installPromptClose");
+
+      // Tag filter state
+      let allTags = [];
+      let selectedTags = new Set();
+      let filteredTags = [];
+
+      // Parse initial search query for tags
+      (function parseInitialQuery() {
+        if (!searchQuery) return;
+        // Match patterns like tag:"something" in the query
+        const tagPattern = /tag:"([^"]+)"/g;
+        let match;
+        while ((match = tagPattern.exec(searchQuery)) !== null) {
+          selectedTags.add(match[1]);
+        }
+      })();
 
       // iOS/Standalone detection
       const isIOS =
@@ -1118,6 +1215,20 @@
       let touchCurrentY = 0;
       let isDragging = false;
       let lastTapTime = 0;
+      let touchStartTime = 0;
+      let lastTouchY = 0;
+      let lastTouchTime = 0;
+      let velocityY = 0;
+
+      // Pan and zoom state
+      let currentScale = 1;
+      let currentTranslateX = 0;
+      let currentTranslateY = 0;
+      let isMultiTouch = false;
+      let initialDistance = 0;
+      let initialScale = 1;
+      let initialTouchCenter = { x: 0, y: 0 };
+      let lastTouchCenter = { x: 0, y: 0 };
 
       // Initialize
       async function init() {
@@ -1227,7 +1338,20 @@
 
           const item = items[index];
           const el = createItemElement(item, offset);
-          el.style.transform = `translateY(${offset * 100}%)`;
+
+          // Apply depth effect with scale, position, and filters
+          const scale = offset === 0 ? 1 : 0.9;
+          const translateY = offset * 100;
+          const translateZ = offset === 0 ? 0 : -100;
+          const opacity = offset === 0 ? 1 : 0.6;
+          const brightness = offset === 0 ? 1 : (offset === 1 ? 0.65 : 0.8);
+          const blur = offset === 0 ? 0 : (offset === 1 ? 1 : 0.5);
+
+          el.style.transform = `translateY(${translateY}%) scale(${scale}) translateZ(${translateZ}px)`;
+          el.style.opacity = opacity;
+          el.style.filter = `brightness(${brightness}) blur(${blur}px)`;
+          el.style.zIndex = offset === 0 ? 10 : (offset < 0 ? 5 : 0);
+
           track.appendChild(el);
 
           // Set up video listeners for current item
@@ -1387,11 +1511,19 @@
       function goToIndex(index) {
         if (index < 0 || index >= items.length) return;
 
+        // Reset pan and zoom transforms when navigating
+        resetMediaTransform();
+
         // Pause current video if any
         const currentVideo = track.querySelector('[data-offset="0"] video');
         if (currentVideo) currentVideo.pause();
 
         currentIndex = index;
+
+        // Add transition class for smooth navigation
+        track.classList.add("transitioning");
+        setTimeout(() => track.classList.remove("transitioning"), 450);
+
         renderItems();
         updateProgress();
         updateLikeButton();
@@ -1651,6 +1783,42 @@
         }
       }
 
+      // Pan and zoom helper functions
+      function getTouchDistance(touch1, touch2) {
+        const dx = touch2.clientX - touch1.clientX;
+        const dy = touch2.clientY - touch1.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      function getTouchCenter(touch1, touch2) {
+        return {
+          x: (touch1.clientX + touch2.clientX) / 2,
+          y: (touch1.clientY + touch2.clientY) / 2,
+        };
+      }
+
+      function applyMediaTransform(mediaEl) {
+        if (!mediaEl) return;
+        mediaEl.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+        mediaEl.style.transformOrigin = "center center";
+        mediaEl.style.transition = "none";
+      }
+
+      function resetMediaTransform() {
+        currentScale = 1;
+        currentTranslateX = 0;
+        currentTranslateY = 0;
+        const item = track.querySelector('[data-offset="0"]');
+        if (item) {
+          const mediaEl = item.querySelector(".swipe-media");
+          if (mediaEl) {
+            mediaEl.style.transform = "";
+            mediaEl.style.transformOrigin = "";
+            mediaEl.style.transition = "";
+          }
+        }
+      }
+
       // Touch handlers
       let touchStartX = 0;
 
@@ -1675,20 +1843,57 @@
           return;
         }
 
-        touchStartY = e.touches[0].clientY;
-        touchStartX = e.touches[0].clientX;
-        touchCurrentY = touchStartY;
-        isDragging = true;
-        track.classList.add("dragging");
-
-        // Check for double tap
-        const now = Date.now();
-        if (now - lastTapTime < 300) {
-          toggleLike();
+        // Multi-touch for pan and zoom
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          isMultiTouch = true;
           isDragging = false;
           track.classList.remove("dragging");
+
+          const touch1 = e.touches[0];
+          const touch2 = e.touches[1];
+
+          initialDistance = getTouchDistance(touch1, touch2);
+          initialScale = currentScale;
+
+          const center = getTouchCenter(touch1, touch2);
+          initialTouchCenter = center;
+          lastTouchCenter = center;
+
+          return;
         }
-        lastTapTime = now;
+
+        // Single touch - only start dragging if not already multi-touch
+        if (e.touches.length === 1 && !isMultiTouch) {
+          touchStartY = e.touches[0].clientY;
+          touchStartX = e.touches[0].clientX;
+          touchCurrentY = touchStartY;
+          touchStartTime = Date.now();
+          lastTouchY = touchStartY;
+          lastTouchTime = touchStartTime;
+          velocityY = 0;
+          isDragging = true;
+          track.classList.add("dragging");
+
+          // Add dragging class to items for instant response
+          const itemEls = track.querySelectorAll(".swipe-item");
+          itemEls.forEach((el) => el.classList.add("dragging"));
+
+          // Check for double tap
+          const now = Date.now();
+          if (now - lastTapTime < 300) {
+            // If zoomed in, reset zoom on double tap
+            if (currentScale > 1) {
+              resetMediaTransform();
+            } else {
+              toggleLike();
+            }
+            isDragging = false;
+            track.classList.remove("dragging");
+            itemEls.forEach((el) => el.classList.remove("dragging"));
+          }
+          lastTapTime = now;
+        }
       }
 
       function onTouchMove(e) {
@@ -1698,21 +1903,122 @@
           return;
         }
 
+        // Handle multi-touch pan and zoom
+        if (isMultiTouch && e.touches.length === 2) {
+          e.preventDefault();
+
+          const item = track.querySelector('[data-offset="0"]');
+          if (!item) return;
+          const mediaEl = item.querySelector(".swipe-media");
+          if (!mediaEl) return;
+
+          const touch1 = e.touches[0];
+          const touch2 = e.touches[1];
+
+          // Pinch to zoom
+          const currentDistance = getTouchDistance(touch1, touch2);
+          const scaleChange = currentDistance / initialDistance;
+          currentScale = Math.max(1, Math.min(5, initialScale * scaleChange)); // Clamp between 1x and 5x
+
+          // Two-finger pan
+          const currentCenter = getTouchCenter(touch1, touch2);
+          const deltaX = currentCenter.x - lastTouchCenter.x;
+          const deltaY = currentCenter.y - lastTouchCenter.y;
+
+          currentTranslateX += deltaX;
+          currentTranslateY += deltaY;
+
+          // Constrain panning based on scale
+          // Allow more panning when zoomed in
+          const maxTranslate = 200 * currentScale;
+          currentTranslateX = Math.max(
+            -maxTranslate,
+            Math.min(maxTranslate, currentTranslateX)
+          );
+          currentTranslateY = Math.max(
+            -maxTranslate,
+            Math.min(maxTranslate, currentTranslateY)
+          );
+
+          lastTouchCenter = currentCenter;
+
+          applyMediaTransform(mediaEl);
+          return;
+        }
+
         if (!isDragging) return;
         e.preventDefault();
 
-        touchCurrentY = e.touches[0].clientY;
+        const currentY = e.touches[0].clientY;
+        const currentTime = Date.now();
+
+        // Calculate velocity for momentum
+        const timeDelta = currentTime - lastTouchTime;
+        if (timeDelta > 0) {
+          velocityY = (currentY - lastTouchY) / timeDelta;
+        }
+        lastTouchY = currentY;
+        lastTouchTime = currentTime;
+
+        touchCurrentY = currentY;
         const deltaY = touchCurrentY - touchStartY;
         const height = container.clientHeight;
 
-        // Calculate drag percentage
-        const dragPercent = (deltaY / height) * 100;
+        // Calculate raw drag percentage
+        let dragPercent = (deltaY / height) * 100;
 
-        // Move all items
+        // Apply rubber-banding at edges
+        const atTop = currentIndex === 0 && deltaY > 0;
+        const atBottom = currentIndex === items.length - 1 && deltaY < 0;
+
+        if (atTop || atBottom) {
+          // Apply resistance curve - the further you drag, the more resistance
+          const resistance = 0.4;
+          dragPercent = dragPercent * resistance;
+        }
+
+        // Move all items with depth effects
         const itemEls = track.querySelectorAll(".swipe-item");
         itemEls.forEach((el) => {
-          const baseOffset = parseInt(el.dataset.offset) * 100;
-          el.style.transform = `translateY(${baseOffset + dragPercent}%)`;
+          const baseOffset = parseInt(el.dataset.offset);
+          const translateY = baseOffset * 100 + dragPercent;
+
+          // Calculate interpolation factor (how far are we dragging)
+          const dragProgress = Math.abs(dragPercent) / 100;
+
+          // Apply scale, opacity, and filter transitions for depth
+          let scale, opacity, translateZ, brightness, blur;
+
+          if (baseOffset === 0) {
+            // Current item shrinks and fades as we drag
+            scale = 1 - dragProgress * 0.1;
+            opacity = 1 - dragProgress * 0.4;
+            translateZ = -dragProgress * 100;
+            brightness = 1 - dragProgress * 0.2;
+            blur = dragProgress * 1;
+          } else if (
+            (baseOffset === 1 && deltaY < 0) ||
+            (baseOffset === -1 && deltaY > 0)
+          ) {
+            // Next item scales up and brightens as it comes into view
+            const progress = Math.min(dragProgress, 1);
+            scale = 0.9 + progress * 0.1;
+            opacity = 0.6 + progress * 0.4;
+            translateZ = -100 + progress * 100;
+            brightness = (baseOffset === 1 ? 0.65 : 0.8) + progress * (1 - (baseOffset === 1 ? 0.65 : 0.8));
+            blur = (baseOffset === 1 ? 1 : 0.5) * (1 - progress);
+          } else {
+            // Other items maintain their state
+            scale = 0.9;
+            opacity = 0.6;
+            translateZ = -100;
+            brightness = baseOffset === 1 ? 0.65 : 0.8;
+            blur = baseOffset === 1 ? 1 : 0.5;
+          }
+
+          el.style.transform = `translateY(${translateY}%) scale(${scale}) translateZ(${translateZ}px)`;
+          el.style.opacity = opacity;
+          el.style.filter = `brightness(${brightness}) blur(${blur}px)`;
         });
       }
 
@@ -1720,6 +2026,24 @@
         // Handle scrubber end
         if (isScrubbing) {
           handleScrubEnd(e);
+          return;
+        }
+
+        // Handle multi-touch end
+        if (isMultiTouch) {
+          // If we still have touches remaining, update multi-touch state
+          if (e.touches.length >= 2) {
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+            initialDistance = getTouchDistance(touch1, touch2);
+            initialScale = currentScale;
+            const center = getTouchCenter(touch1, touch2);
+            initialTouchCenter = center;
+            lastTouchCenter = center;
+          } else {
+            // Multi-touch ended, reset flag
+            isMultiTouch = false;
+          }
           return;
         }
 
@@ -1733,20 +2057,54 @@
           ? e.changedTouches[0].clientX - touchStartX
           : 0;
         const height = container.clientHeight;
-        const threshold = height * 0.15; // 15% threshold
 
-        if (deltaY < -threshold && currentIndex < items.length - 1) {
-          // Swiped up - go to next
+        // Calculate velocity-based threshold
+        // High velocity = easier to trigger swipe
+        const velocityThreshold = 0.5; // pixels per ms
+        const distanceThreshold = height * 0.12; // 12% of screen height
+
+        const hasVelocity = Math.abs(velocityY) > velocityThreshold;
+        const hasDistance = Math.abs(deltaY) > distanceThreshold;
+
+        // Determine if we should change items
+        const shouldGoNext =
+          (hasVelocity && velocityY < -velocityThreshold) ||
+          (hasDistance && deltaY < -distanceThreshold);
+        const shouldGoPrev =
+          (hasVelocity && velocityY > velocityThreshold) ||
+          (hasDistance && deltaY > distanceThreshold);
+
+        // Remove dragging class from items
+        const itemEls = track.querySelectorAll(".swipe-item");
+        itemEls.forEach((el) => el.classList.remove("dragging"));
+
+        if (shouldGoNext && currentIndex < items.length - 1) {
+          // Swiped up with velocity or distance - go to next
+          track.classList.add("transitioning");
+          setTimeout(() => track.classList.remove("transitioning"), 450);
           goNext();
-        } else if (deltaY > threshold && currentIndex > 0) {
-          // Swiped down - go to previous
+        } else if (shouldGoPrev && currentIndex > 0) {
+          // Swiped down with velocity or distance - go to previous
+          track.classList.add("transitioning");
+          setTimeout(() => track.classList.remove("transitioning"), 450);
           goPrev();
         } else {
-          // Snap back - reset transforms without re-rendering
-          const itemEls = track.querySelectorAll(".swipe-item");
+          // Snap back with bounce effect
+          track.classList.add("snapping");
+          setTimeout(() => track.classList.remove("snapping"), 400);
+
           itemEls.forEach((el) => {
-            const baseOffset = parseInt(el.dataset.offset) * 100;
-            el.style.transform = `translateY(${baseOffset}%)`;
+            const baseOffset = parseInt(el.dataset.offset);
+            const scale = baseOffset === 0 ? 1 : 0.9;
+            const opacity = baseOffset === 0 ? 1 : 0.6;
+            const translateY = baseOffset * 100;
+            const translateZ = baseOffset === 0 ? 0 : -100;
+            const brightness = baseOffset === 0 ? 1 : (baseOffset === 1 ? 0.65 : 0.8);
+            const blur = baseOffset === 0 ? 0 : (baseOffset === 1 ? 1 : 0.5);
+
+            el.style.transform = `translateY(${translateY}%) scale(${scale}) translateZ(${translateZ}px)`;
+            el.style.opacity = opacity;
+            el.style.filter = `brightness(${brightness}) blur(${blur}px)`;
           });
 
           // Check for tap on video (small movement)
@@ -1772,6 +2130,14 @@
 
       // Keyboard navigation
       function onKeyDown(e) {
+        // Check if filter modal is open
+        if (filterModal.classList.contains("show")) {
+          if (e.key === "Escape") {
+            filterModal.classList.remove("show");
+          }
+          return; // Don't handle other keys when modal is open
+        }
+
         switch (e.key) {
           case "ArrowUp":
           case "ArrowLeft":
@@ -1790,30 +2156,168 @@
           case "f":
             toggleFitMode();
             break;
-          case "Escape":
-            if (filterModal.classList.contains("show")) {
-              filterModal.classList.remove("show");
-            }
-            break;
         }
+      }
+
+      // Tag filtering functions
+      async function loadAllTags() {
+        try {
+          const response = await fetch("/media/suggest?kind=tag&prefix=");
+          const data = await response.json();
+          // New format: { tags: [{label: "...", category: "..."}] }
+          allTags = (data.tags || []).map((tag) => ({
+            label: tag.label,
+            category: tag.category,
+          }));
+          filteredTags = [...allTags];
+          renderTagList();
+        } catch (err) {
+          console.error("Failed to load tags:", err);
+          tagList.innerHTML =
+            '<div class="tag-list-empty">Failed to load tags</div>';
+        }
+      }
+
+      function renderSelectedTags() {
+        if (selectedTags.size === 0) {
+          selectedTagsContainer.innerHTML = "";
+          return;
+        }
+
+        const chips = Array.from(selectedTags)
+          .map(
+            (tag) =>
+              `<div class="selected-tag-chip">
+              <span>${escapeHtml(tag)}</span>
+              <button type="button" onclick="removeTag('${escapeAttr(
+                tag
+              )}')">✕</button>
+            </div>`
+          )
+          .join("");
+
+        const clearAll =
+          selectedTags.size > 1
+            ? '<div class="clear-all-tags" onclick="clearAllTags()">Clear all</div>'
+            : "";
+
+        selectedTagsContainer.innerHTML = chips + clearAll;
+      }
+
+      function renderTagList() {
+        if (filteredTags.length === 0) {
+          tagList.innerHTML =
+            '<div class="tag-list-empty">No tags found</div>';
+          return;
+        }
+
+        // Group tags by category
+        const tagsByCategory = {};
+        filteredTags.forEach((tag) => {
+          const category = tag.category || "Other";
+          if (!tagsByCategory[category]) {
+            tagsByCategory[category] = [];
+          }
+          tagsByCategory[category].push(tag);
+        });
+
+        // Sort categories alphabetically
+        const categories = Object.keys(tagsByCategory).sort();
+
+        // Render grouped tags with proper section structure
+        let html = "";
+        categories.forEach((category) => {
+          html += `<div class="tag-category-section">
+            <div class="tag-category-header">${escapeHtml(category)}</div>
+            <div class="tag-category-items">`;
+
+          tagsByCategory[category].forEach((tag) => {
+            const selected = selectedTags.has(tag.label) ? "selected" : "";
+            html += `<div class="tag-item ${selected}" onclick="toggleTag('${escapeAttr(
+              tag.label
+            )}')">
+              <span>${escapeHtml(tag.label)}</span>
+            </div>`;
+          });
+
+          html += `</div></div>`;
+        });
+
+        tagList.innerHTML = html;
+      }
+
+      function toggleTag(tag) {
+        if (selectedTags.has(tag)) {
+          selectedTags.delete(tag);
+        } else {
+          selectedTags.add(tag);
+        }
+        renderSelectedTags();
+        renderTagList();
+      }
+
+      function removeTag(tag) {
+        selectedTags.delete(tag);
+        renderSelectedTags();
+        renderTagList();
+      }
+
+      function clearAllTags() {
+        selectedTags.clear();
+        renderSelectedTags();
+        renderTagList();
+      }
+
+      function filterTagList(searchTerm) {
+        const term = searchTerm.toLowerCase().trim();
+        if (!term) {
+          filteredTags = [...allTags];
+        } else {
+          filteredTags = allTags.filter(
+            (tag) =>
+              tag.label.toLowerCase().includes(term) ||
+              (tag.category && tag.category.toLowerCase().includes(term))
+          );
+        }
+        renderTagList();
+      }
+
+      function buildTagQuery() {
+        if (selectedTags.size === 0) return "";
+        const tagQueries = Array.from(selectedTags).map(
+          (tag) => `tag:"${tag}"`
+        );
+        return tagQueries.join(" OR ");
       }
 
       // Filter modal
       document.getElementById("filterBtn").addEventListener("click", () => {
         filterModal.classList.add("show");
-        filterInput.focus();
+        tagSearch.value = ""; // Clear search input
+        loadAllTags();
+        renderSelectedTags();
+        tagSearch.focus();
       });
 
       document.getElementById("filterClose").addEventListener("click", () => {
         filterModal.classList.remove("show");
       });
 
-      function applyFilter() {
-        const newQuery = filterInput.value.trim();
-        // Save to recent searches
-        if (newQuery) {
-          addRecentSearch(newQuery);
+      tagSearch.addEventListener("input", (e) => {
+        filterTagList(e.target.value);
+      });
+
+      tagSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          applyFilter();
+        } else if (e.key === "Escape") {
+          filterModal.classList.remove("show");
         }
+      });
+
+      function applyFilter() {
+        const newQuery = buildTagQuery();
         if (newQuery !== searchQuery) {
           searchQuery = newQuery;
           items = [];
@@ -1830,6 +2334,11 @@
       document
         .getElementById("filterApply")
         .addEventListener("click", applyFilter);
+
+      // Make functions global for onclick handlers
+      window.toggleTag = toggleTag;
+      window.removeTag = removeTag;
+      window.clearAllTags = clearAllTags;
 
       // Action buttons
       likeBtn.addEventListener("click", toggleLike);
@@ -1880,539 +2389,6 @@
           .replace(/'/g, "&#39;");
       }
 
-      // -----------------------------
-      // Typeahead with recent searches
-      // -----------------------------
-      const RECENT_STORAGE_KEY = "shrike_recent_searches";
-      const MAX_RECENT_SEARCHES = 10;
-
-      function getRecentSearches() {
-        try {
-          const stored = localStorage.getItem(RECENT_STORAGE_KEY);
-          if (!stored) return [];
-          const parsed = JSON.parse(stored);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
-          return [];
-        }
-      }
-
-      function saveRecentSearches(searches) {
-        try {
-          localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(searches));
-        } catch (e) {}
-      }
-
-      function addRecentSearch(query) {
-        if (!query || !query.trim()) return;
-        query = query.trim();
-        let recent = getRecentSearches();
-        recent = recent.filter((s) => s !== query);
-        recent.unshift(query);
-        if (recent.length > MAX_RECENT_SEARCHES) {
-          recent = recent.slice(0, MAX_RECENT_SEARCHES);
-        }
-        saveRecentSearches(recent);
-      }
-
-      function removeRecentSearch(query) {
-        let recent = getRecentSearches();
-        recent = recent.filter((s) => s !== query);
-        saveRecentSearches(recent);
-      }
-
-      function clearAllRecentSearches() {
-        saveRecentSearches([]);
-      }
-
-      (function initTypeahead() {
-        const input = document.getElementById("filterInput");
-        const dropdown = document.getElementById("typeahead-dropdown");
-        if (!input || !dropdown) return;
-
-        let typeaheadItems = [];
-        let activeIndex = -1;
-        let debounceTimer = null;
-        let lastReqId = 0;
-
-        function hideDropdown() {
-          dropdown.style.display = "none";
-          dropdown.innerHTML = "";
-          typeaheadItems = [];
-          activeIndex = -1;
-        }
-
-        function renderDropdown(recentItems, suggestionItems, showClearAll) {
-          const hasRecent = recentItems && recentItems.length > 0;
-          const hasSuggestions = suggestionItems && suggestionItems.length > 0;
-
-          if (!hasRecent && !hasSuggestions) {
-            hideDropdown();
-            return;
-          }
-
-          typeaheadItems = [];
-          let html = "";
-
-          if (hasRecent) {
-            html += '<div class="typeahead-section">Recent Searches</div>';
-            recentItems.forEach((it) => {
-              const idx = typeaheadItems.length;
-              typeaheadItems.push({
-                text: it.text,
-                kind: "recent",
-                isRecent: true,
-              });
-              const cls =
-                idx === activeIndex
-                  ? "typeahead-item recent active"
-                  : "typeahead-item recent";
-              html += `<div class="${cls}" data-index="${idx}">
-                <span><span class="recent-icon">↺</span>${escapeHtml(
-                  it.text
-                )}</span>
-                <button type="button" class="remove-btn" data-remove="${escapeAttr(
-                  it.text
-                )}" title="Remove">✕</button>
-              </div>`;
-            });
-          }
-
-          if (hasSuggestions) {
-            if (hasRecent) {
-              html += '<div class="typeahead-section">Suggestions</div>';
-            }
-            suggestionItems.forEach((it) => {
-              const idx = typeaheadItems.length;
-              typeaheadItems.push({
-                text: it.text,
-                kind: it.kind,
-                hint: it.hint,
-              });
-              const cls =
-                idx === activeIndex
-                  ? "typeahead-item active"
-                  : "typeahead-item";
-              const hint = it.hint
-                ? `<span class="hint">${escapeHtml(it.hint)}</span>`
-                : "";
-              let icon = "→";
-              if (it.kind === "filter") icon = "⚙";
-              else if (it.kind === "value") icon = "◇";
-              else if (it.kind === "key") icon = ":";
-              html += `<div class="${cls}" data-index="${idx}"><span><span class="suggest-icon">${icon}</span>${escapeHtml(
-                it.text
-              )}</span>${hint}</div>`;
-            });
-          }
-
-          if (hasRecent && showClearAll) {
-            html +=
-              '<div class="typeahead-clear-all" data-clear-all="true">Clear search history</div>';
-          }
-
-          dropdown.style.display = "block";
-          dropdown.innerHTML = html;
-
-          Array.from(dropdown.querySelectorAll(".typeahead-item")).forEach(
-            (el) => {
-              el.addEventListener("mousedown", (e) => {
-                const removeBtn = e.target.closest(".remove-btn");
-                if (removeBtn) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const queryToRemove = removeBtn.getAttribute("data-remove");
-                  if (queryToRemove) {
-                    removeRecentSearch(queryToRemove);
-                    showRecentSearches();
-                  }
-                  return;
-                }
-                e.preventDefault();
-                const idx = Number(el.getAttribute("data-index"));
-                if (!Number.isNaN(idx)) applySuggestion(typeaheadItems[idx]);
-              });
-            }
-          );
-
-          const clearAllBtn = dropdown.querySelector(".typeahead-clear-all");
-          if (clearAllBtn) {
-            clearAllBtn.addEventListener("mousedown", (e) => {
-              e.preventDefault();
-              clearAllRecentSearches();
-              hideDropdown();
-            });
-          }
-        }
-
-        function showRecentSearches() {
-          const inputValue = input.value.trim();
-          const recent = getRecentSearches();
-
-          if (inputValue === "") {
-            if (recent.length === 0) {
-              buildSuggestions();
-              return;
-            }
-            const recentItems = recent.map((s) => ({ text: s }));
-            activeIndex = -1;
-            renderDropdown(recentItems, [], true);
-          } else {
-            buildSuggestions();
-          }
-        }
-
-        function moveActive(delta) {
-          if (typeaheadItems.length === 0) return;
-          if (activeIndex === -1) {
-            activeIndex = delta > 0 ? 0 : typeaheadItems.length - 1;
-          } else {
-            activeIndex =
-              (activeIndex + delta + typeaheadItems.length) %
-              typeaheadItems.length;
-          }
-          const recentItems = typeaheadItems
-            .filter((it) => it.isRecent)
-            .map((it) => ({ text: it.text }));
-          const suggestionItems = typeaheadItems.filter((it) => !it.isRecent);
-          renderDropdown(
-            recentItems,
-            suggestionItems,
-            input.value.trim() === ""
-          );
-        }
-
-        function currentTokenInfo() {
-          const value = input.value;
-          const caret = input.selectionStart || 0;
-          let inQuotes = false;
-          let start = 0;
-          for (let i = 0; i < caret; i++) {
-            const c = value[i];
-            if (c === '"') inQuotes = !inQuotes;
-            if (!inQuotes && c === " " && i + 1 <= caret) start = i + 1;
-          }
-          inQuotes = false;
-          let end = value.length;
-          for (let i = start; i < value.length; i++) {
-            const c = value[i];
-            if (c === '"') inQuotes = !inQuotes;
-            if (!inQuotes && c === " ") {
-              end = i;
-              break;
-            }
-          }
-          const token = value.slice(start, caret);
-          const fullToken = value.slice(start, end);
-          let negate = fullToken.startsWith("NOT ");
-          const noNot = negate ? fullToken.slice(4) : fullToken;
-          let key = "";
-          let stage = "key";
-          if (token.length === 0) {
-            const prev = value.slice(0, start);
-            stage = prev.trimEnd().endsWith(":") ? "value" : "key";
-          }
-          const colonIdxInToken = noNot.indexOf(":");
-          if (colonIdxInToken >= 0) {
-            key = noNot.slice(0, colonIdxInToken).trim().toLowerCase();
-            stage = "value";
-          } else {
-            key = noNot.trim().toLowerCase();
-            stage = "key";
-          }
-          let valuePrefix = "";
-          let valueStartAbs = end;
-          let hasOpeningQuote = false;
-          let hasClosingQuote = false;
-          if (stage === "value") {
-            let q = false;
-            let colonAbs = -1;
-            for (let i = start; i < end; i++) {
-              const c = value[i];
-              if (c === '"') q = !q;
-              if (!q && c === ":") {
-                colonAbs = i;
-                break;
-              }
-            }
-            if (colonAbs >= 0) {
-              valueStartAbs = colonAbs + 1;
-              while (valueStartAbs < end && value[valueStartAbs] === " ")
-                valueStartAbs++;
-              if (valueStartAbs < end && value[valueStartAbs] === '"') {
-                hasOpeningQuote = true;
-              }
-              if (end > valueStartAbs && value[end - 1] === '"') {
-                hasClosingQuote = true;
-              }
-              const prefixStart = hasOpeningQuote
-                ? valueStartAbs + 1
-                : valueStartAbs;
-              valuePrefix = value.slice(prefixStart, caret);
-            }
-          }
-          return {
-            start,
-            end,
-            caret,
-            token,
-            key,
-            stage,
-            negate,
-            valuePrefix,
-            valueStartAbs,
-            hasOpeningQuote,
-            hasClosingQuote,
-          };
-        }
-
-        function shouldQuoteValueForKey(key) {
-          return (
-            key === "tag" ||
-            key === "category" ||
-            key === "path" ||
-            key === "pathdir" ||
-            key === "description" ||
-            key === "hash"
-          );
-        }
-
-        function buildSuggestions() {
-          const info = currentTokenInfo();
-          const value = input.value;
-          const reqId = ++lastReqId;
-          const inputTrimmed = value.trim();
-
-          const allRecent = getRecentSearches();
-          let matchingRecent = [];
-          if (inputTrimmed !== "") {
-            const lowerInput = inputTrimmed.toLowerCase();
-            matchingRecent = allRecent
-              .filter(
-                (s) =>
-                  s.toLowerCase().includes(lowerInput) && s !== inputTrimmed
-              )
-              .slice(0, 3);
-          }
-
-          if (info.stage === "key") {
-            fetch("/media/suggest?kind=filters")
-              .then((r) => r.json())
-              .then((data) => {
-                if (reqId !== lastReqId) return;
-                const pref = info.key || "";
-                const arr = (data.suggestions || []).filter((s) =>
-                  s.startsWith(pref)
-                );
-                if (
-                  (info.token.trim() === "" && value.trim() !== "") ||
-                  info.token.toUpperCase() === "A" ||
-                  info.token.toUpperCase() === "O"
-                ) {
-                  arr.unshift("AND", "OR");
-                }
-                const suggestionItems = arr.map((s) => ({
-                  text: s,
-                  kind: "key",
-                }));
-                const recentItems = matchingRecent.map((s) => ({ text: s }));
-                activeIndex = -1;
-                renderDropdown(recentItems, suggestionItems, false);
-              })
-              .catch(() => hideDropdown());
-            return;
-          }
-
-          const k = info.key;
-          if (k === "exists") {
-            const vals = ["true", "false"];
-            const pref = info.valuePrefix.toLowerCase();
-            const arr = vals.filter((v) => v.startsWith(pref));
-            const suggestionItems = arr.map((s) => ({
-              text: s,
-              kind: "value",
-            }));
-            const recentItems = matchingRecent.map((s) => ({ text: s }));
-            activeIndex = -1;
-            renderDropdown(recentItems, suggestionItems, false);
-            return;
-          }
-          if (k === "tags") {
-            const vals = ["none"];
-            const pref = info.valuePrefix.toLowerCase();
-            const arr = vals.filter((v) => v.startsWith(pref));
-            const suggestionItems = arr.map((s) => ({
-              text: s,
-              kind: "value",
-            }));
-            const recentItems = matchingRecent.map((s) => ({ text: s }));
-            activeIndex = -1;
-            renderDropdown(recentItems, suggestionItems, false);
-            return;
-          }
-          if (
-            k === "size" ||
-            k === "width" ||
-            k === "height" ||
-            k === "tagcount"
-          ) {
-            const ops = [">=", "<=", ">", "<"];
-            const pref = info.valuePrefix;
-            const arr = ops.filter((o) => o.startsWith(pref));
-            const suggestionItems = arr.map((s) => ({
-              text: s,
-              kind: "value",
-              hint: "operator",
-            }));
-            const recentItems = matchingRecent.map((s) => ({ text: s }));
-            activeIndex = -1;
-            renderDropdown(recentItems, suggestionItems, false);
-            return;
-          }
-          let kind = null;
-          if (k === "tag") kind = "tag";
-          else if (k === "category") kind = "category";
-          else if (k === "path") kind = "path";
-          else if (k === "pathdir") kind = "pathdir";
-          if (!kind) {
-            if (matchingRecent.length > 0) {
-              const recentItems = matchingRecent.map((s) => ({ text: s }));
-              activeIndex = -1;
-              renderDropdown(recentItems, [], false);
-            } else {
-              hideDropdown();
-            }
-            return;
-          }
-          const encPrefix = encodeURIComponent(info.valuePrefix || "");
-          fetch(`/media/suggest?kind=${kind}&prefix=${encPrefix}`)
-            .then((r) => r.json())
-            .then((data) => {
-              if (reqId !== lastReqId) return;
-              const arr = data.suggestions || [];
-              const suggestionItems = arr.map((s) => ({
-                text: s,
-                kind: "value",
-              }));
-              const recentItems = matchingRecent.map((s) => ({ text: s }));
-              activeIndex = -1;
-              renderDropdown(recentItems, suggestionItems, false);
-            })
-            .catch(() => hideDropdown());
-        }
-
-        function applySuggestion(sug) {
-          if (!sug) return;
-
-          if (sug.isRecent) {
-            input.value = sug.text;
-            const newCaret = sug.text.length;
-            input.setSelectionRange(newCaret, newCaret);
-            hideDropdown();
-            input.focus();
-            return;
-          }
-
-          const info = currentTokenInfo();
-          const value = input.value;
-          let insertText = sug.text;
-
-          if (info.stage === "key") {
-            insertText = (info.negate ? "NOT " : "") + insertText + ":";
-            const before = value.slice(0, info.start);
-            const after = value.slice(info.end);
-            input.value = before + insertText + after;
-            const newCaret = (before + insertText).length;
-            input.setSelectionRange(newCaret, newCaret);
-          } else if (info.stage === "value") {
-            const needsQuote =
-              shouldQuoteValueForKey(info.key) ||
-              /\s/.test(insertText) ||
-              info.key === "tag" ||
-              info.key === "path" ||
-              info.key === "pathdir" ||
-              info.key === "category";
-            let replaceStart = info.valueStartAbs;
-            if (info.hasOpeningQuote) {
-              replaceStart = info.valueStartAbs + 1;
-            }
-            if (needsQuote) {
-              const openQuote = info.hasOpeningQuote ? "" : '"';
-              insertText = openQuote + insertText + '"';
-            }
-            const replaceEnd = info.end;
-            const before = value.slice(0, replaceStart);
-            const after = value.slice(replaceEnd);
-            input.value = before + insertText + after;
-            const newCaret = (before + insertText).length;
-            input.setSelectionRange(newCaret, newCaret);
-          } else {
-            const before = value.slice(0, info.start);
-            const after = value.slice(info.end);
-            insertText = insertText.toUpperCase();
-            input.value = before + insertText + after;
-            const newCaret = (before + insertText).length + 1;
-            input.setSelectionRange(newCaret, newCaret);
-          }
-
-          hideDropdown();
-          input.focus();
-        }
-
-        input.addEventListener("keydown", (e) => {
-          if (dropdown.style.display === "block") {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              moveActive(1);
-              return;
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              moveActive(-1);
-              return;
-            }
-            if (e.key === "Enter" || e.key === "Tab") {
-              if (activeIndex >= 0 && typeaheadItems[activeIndex]) {
-                e.preventDefault();
-                applySuggestion(typeaheadItems[activeIndex]);
-                return;
-              }
-            }
-            if (e.key === "Escape") {
-              e.stopPropagation();
-              hideDropdown();
-              return;
-            }
-          }
-          // If Enter and dropdown not active, apply filter
-          if (
-            e.key === "Enter" &&
-            (dropdown.style.display !== "block" || activeIndex < 0)
-          ) {
-            applyFilter();
-          }
-        });
-
-        input.addEventListener("input", () => {
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            if (input.value.trim() === "") {
-              showRecentSearches();
-            } else {
-              buildSuggestions();
-            }
-          }, 150);
-        });
-
-        input.addEventListener("focus", () => {
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(showRecentSearches, 100);
-        });
-
-        input.addEventListener("blur", () => {
-          setTimeout(() => hideDropdown(), 150);
-        });
-      })();
 
       // Event listeners
       container.addEventListener("touchstart", onTouchStart, {

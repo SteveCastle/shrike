@@ -622,37 +622,65 @@ func mediaSuggestHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
-		type resp struct {
+		type respSimple struct {
 			Suggestions []string `json:"suggestions"`
 		}
 
-		var suggestions []string
-		var err error
+		type respTags struct {
+			Tags []media.MediaTag `json:"tags"`
+		}
 
 		switch kind {
 		case "filters":
-			suggestions = media.SuggestFilters()
+			suggestions := media.SuggestFilters()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(respSimple{Suggestions: suggestions})
+			return
 		case "tag":
-			suggestions, err = media.SuggestTagLabels(deps.DB, prefix, limit)
+			// Return structured tags with categories for grouping (no pagination - returns all tags)
+			tags, err := media.SuggestTagsWithCategories(deps.DB, prefix)
+			if err != nil {
+				log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
+				http.Error(w, "suggest error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(respTags{Tags: tags})
+			return
 		case "category":
-			suggestions, err = media.SuggestCategoryLabels(deps.DB, prefix, limit)
+			suggestions, err := media.SuggestCategoryLabels(deps.DB, prefix, limit)
+			if err != nil {
+				log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
+				http.Error(w, "suggest error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(respSimple{Suggestions: suggestions})
+			return
 		case "path":
-			suggestions, err = media.SuggestPaths(deps.DB, prefix, limit)
+			suggestions, err := media.SuggestPaths(deps.DB, prefix, limit)
+			if err != nil {
+				log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
+				http.Error(w, "suggest error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(respSimple{Suggestions: suggestions})
+			return
 		case "pathdir":
-			suggestions, err = media.SuggestPathDirs(deps.DB, prefix, limit)
+			suggestions, err := media.SuggestPathDirs(deps.DB, prefix, limit)
+			if err != nil {
+				log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
+				http.Error(w, "suggest error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(respSimple{Suggestions: suggestions})
+			return
 		default:
 			http.Error(w, "unknown kind", http.StatusBadRequest)
 			return
 		}
-
-		if err != nil {
-			log.Printf("suggest error kind=%s prefix=%q: %v", kind, prefix, err)
-			http.Error(w, "suggest error", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp{Suggestions: suggestions})
 	}
 }
 

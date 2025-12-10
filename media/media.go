@@ -1378,6 +1378,34 @@ func SuggestTagLabels(db *sql.DB, prefix string, limit int) ([]string, error) {
 	return out, nil
 }
 
+// SuggestTagsWithCategories returns tags with their categories, grouped and ordered
+// No limit is applied - returns all matching tags since they are grouped by category
+func SuggestTagsWithCategories(db *sql.DB, prefix string) ([]MediaTag, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
+	}
+	like := "%" + escapeLikePattern(strings.TrimSpace(prefix)) + "%"
+	rows, err := db.Query(`
+        SELECT DISTINCT tag_label, category_label
+        FROM media_tag_by_category
+        WHERE tag_label COLLATE NOCASE LIKE ? ESCAPE '\'
+        ORDER BY category_label, tag_label
+    `, like)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MediaTag
+	for rows.Next() {
+		var tag MediaTag
+		if err := rows.Scan(&tag.Label, &tag.Category); err != nil {
+			return nil, err
+		}
+		out = append(out, tag)
+	}
+	return out, nil
+}
+
 // SuggestCategoryLabels returns distinct category labels matching a prefix (case-insensitive)
 func SuggestCategoryLabels(db *sql.DB, prefix string, limit int) ([]string, error) {
 	if db == nil {
