@@ -1,6 +1,7 @@
 package runners
 
 import (
+	"context"
 	"sync"
 
 	"github.com/stevecastle/shrike/jobqueue"
@@ -13,24 +14,46 @@ type Runners struct {
 	maxConcurrent int
 	mu            sync.Mutex
 	running       int
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 // New creates a new Runners instance with a given concurrency level.
 func New(queue *jobqueue.Queue, maxConcurrent int) *Runners {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Runners{
 		queue:         queue,
 		maxConcurrent: maxConcurrent,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	// Start a goroutine to listen to the signal channel.
+	r.wg.Add(1)
 	go func() {
-		for range r.queue.Signal {
-			// When a signal is received, attempt to pick up a new job.
-			r.CheckForJobs()
+		defer r.wg.Done()
+		for {
+			select {
+			case <-r.ctx.Done():
+				// Shutdown requested
+				return
+			case <-r.queue.Signal:
+				// When a signal is received, attempt to pick up a new job.
+				r.CheckForJobs()
+			}
 		}
 	}()
 
 	return r
+}
+
+// Shutdown stops the runners from accepting new jobs and waits for running jobs to complete.
+func (r *Runners) Shutdown() {
+	// Cancel the context to stop the signal listener
+	r.cancel()
+	// Wait for the signal listener goroutine to finish
+	r.wg.Wait()
 }
 
 // CheckForJobs attempts to claim and run a new job if the runners are not at capacity.

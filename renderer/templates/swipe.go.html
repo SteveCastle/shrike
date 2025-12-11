@@ -1284,6 +1284,9 @@
         await loadMore(1);
 
         if (items.length > 0) {
+          // Hide empty state and show content
+          emptyState.style.display = "none";
+
           // Try to restore to saved position
           let restoredIndex = 0;
           if (savedPath) {
@@ -1318,7 +1321,9 @@
           // Trigger intelligent preloading
           checkAndPreload();
         } else {
+          // Show empty state and hide content
           emptyState.style.display = "flex";
+          swipeActions.style.display = "none";
           swipeHint.style.display = "none";
         }
       }

@@ -64,6 +64,9 @@ var deps *Dependencies
 // Keep a copy of the currently loaded config in memory
 var currentConfig appconfig.Config
 
+// Global runners instance so we can shut it down when switching databases
+var currentRunners *runners.Runners
+
 // -----------------------------------------------------------------------------
 // Dependencies struct to hold shared dependencies
 // -----------------------------------------------------------------------------
@@ -101,6 +104,8 @@ func switchDatabase(newDBPath string) error {
 		return fmt.Errorf("newDBPath cannot be empty")
 	}
 
+	log.Printf("Switching database to: %s", newDBPath)
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(newDBPath), 0755); err != nil {
 		return fmt.Errorf("failed to create database directory: %v", err)
@@ -116,21 +121,38 @@ func switchDatabase(newDBPath string) error {
 		return fmt.Errorf("failed to ping new database: %v", err)
 	}
 
+	// Ensure indexes on the new database
+	if err := ensureIndexes(newDB); err != nil {
+		log.Printf("warning: failed to ensure indexes on new database: %v", err)
+	}
+
 	// Prepare a new queue backed by the new DB
 	newQueue := jobqueue.NewQueueWithDB(newDB)
 
-	// Swap dependencies
+	// Shut down old runners first if they exist
+	if currentRunners != nil {
+		log.Println("Shutting down old runners...")
+		currentRunners.Shutdown()
+		log.Println("Old runners shut down successfully")
+	}
+
+	// Swap dependencies (this updates the global deps pointer that all handlers reference)
 	oldDB := deps.DB
 	deps.DB = newDB
 	deps.Queue = newQueue
 
-	// Start runners for the new queue
-	runners.New(newQueue, 1)
+	// Start new runners for the new queue
+	log.Println("Starting new runners for new queue...")
+	currentRunners = runners.New(newQueue, 1)
+	log.Printf("New runners started. Current jobs in new queue: %d", len(newQueue.GetJobs()))
 
 	// Close the old DB last
 	if oldDB != nil {
+		log.Println("Closing old database connection...")
 		_ = oldDB.Close()
 	}
+
+	log.Printf("Database switch complete. Now using: %s", newDBPath)
 	return nil
 }
 
@@ -1479,7 +1501,7 @@ func main() {
 	log.Println("Initializing job queue with database persistence...")
 	queue := jobqueue.NewQueueWithDB(db)
 	log.Printf("Job queue initialized. Current jobs: %d", len(queue.GetJobs()))
-	runners.New(queue, 1)
+	currentRunners = runners.New(queue, 1)
 
 	// ––– create dependencies struct –––
 	deps = &Dependencies{
@@ -1566,7 +1588,14 @@ func onReady() {
 func onExit() {
 	log.Println("Shutting down Shrike server...")
 
-	// Shutdown stream connections first
+	// Shutdown runners first to stop processing new jobs
+	if currentRunners != nil {
+		log.Println("Shutting down job runners...")
+		currentRunners.Shutdown()
+		log.Println("Job runners shut down successfully")
+	}
+
+	// Shutdown stream connections
 	log.Println("Shutting down stream connections...")
 	stream.Shutdown()
 
