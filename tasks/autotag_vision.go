@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -108,12 +107,11 @@ func generateAutoTagsWithVision(ctx context.Context, mediaPath string, available
 	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".webp" {
 		tempImagePath = mediaPath
 	} else {
-		screenshotPath := filepath.Join(os.TempDir(), "autotag_screenshot_"+filepath.Base(mediaPath)+".jpg")
-		cleanupPaths = append(cleanupPaths, screenshotPath)
-		ffmpegCmd := exec.CommandContext(ctx, "ffmpeg", "-ss", "1", "-i", mediaPath, "-frames:v", "1", "-q:v", "2", "-y", screenshotPath)
-		if err := ffmpegCmd.Run(); err != nil {
-			return nil, fmt.Errorf("ffmpeg screenshot failed: %w", err)
+		screenshotPath, err := extractVideoFrame(ctx, mediaPath, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract video frame: %w", err)
 		}
+		cleanupPaths = append(cleanupPaths, screenshotPath)
 		tempImagePath = screenshotPath
 	}
 	resizedPath, err := resizeImageIfNeeded(tempImagePath)

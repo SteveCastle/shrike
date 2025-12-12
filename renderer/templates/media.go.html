@@ -82,11 +82,13 @@
         word-break: break-all;
         white-space: normal;
         cursor: pointer;
-        transition: color var(--transition-fast);
+        transition: all var(--transition-fast);
+        text-decoration: none;
       }
 
       .media-cell.path:hover {
-        color: var(--text-primary);
+        color: var(--accent-cyan);
+        text-decoration: underline;
       }
 
       .media-cell.description {
@@ -1673,8 +1675,10 @@
               class="media-cell path"
               data-label="Path"
               data-media-path="{{htmlAttr .Path}}"
+              onclick="openLocalPath(event, '{{htmlAttr .Path}}')"
               onmouseenter="showMediaPreview(event, this.dataset.mediaPath)"
               onmouseleave="hideMediaPreview()"
+              style="cursor: pointer;"
             >
               {{.Path}}
             </div>
@@ -2611,7 +2615,9 @@
                 </div>
                 <div class="media-cell path" data-label="Path" data-media-path="${escapeHtml(
                   item.path
-                )}" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()">${escapeHtml(
+                )}" onclick="openLocalPath(event, '${escapeAttr(
+                item.path
+              )}')" onmouseenter="showMediaPreview(event, this.dataset.mediaPath)" onmouseleave="hideMediaPreview()" style="cursor: pointer;">${escapeHtml(
                 item.path
               )}</div>
                 <div class="media-cell description" data-label="Description">${escapeHtml(
@@ -2663,6 +2669,25 @@
         const div = document.createElement("div");
         div.textContent = String(text);
         return div.innerHTML;
+      }
+
+      // Open local path using OS default application
+      function openLocalPath(event, path) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!path) return;
+
+        fetch("/open", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: path }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              console.error("Failed to open path:", path);
+            }
+          })
+          .catch((err) => console.error("Error opening path:", err));
       }
 
       // Escape for use in HTML attribute values (also escapes quotes)

@@ -1139,10 +1139,14 @@
 
       // Generate a session seed for deterministic shuffle
       // This changes on each page load but stays consistent during pagination
+      // Uses crypto.getRandomValues for high-quality randomness
       const SESSION_SEED_KEY = "swipe_session_seed";
       let sessionSeed = sessionStorage.getItem(SESSION_SEED_KEY);
       if (!sessionSeed) {
-        sessionSeed = Date.now().toString();
+        // Generate a cryptographically strong random seed
+        const randomArray = new Uint32Array(1);
+        crypto.getRandomValues(randomArray);
+        sessionSeed = randomArray[0].toString();
         sessionStorage.setItem(SESSION_SEED_KEY, sessionSeed);
       }
 
@@ -1314,8 +1318,9 @@
           savePosition(); // Save initial position
 
           // Load next batch in background for smoother experience
+          // Increased batch size for better buffering
           if (!savedPath && hasMore) {
-            loadMore(10, true);
+            loadMore(20, true);
           }
 
           // Trigger intelligent preloading
@@ -1371,8 +1376,9 @@
 
         const itemsRemaining = items.length - currentIndex;
 
-        // Aggressive preloading: load when 5 items remain
-        if (itemsRemaining <= 5) {
+        // Aggressive preloading: load when 3 items remain
+        // Tighter trigger for smoother experience
+        if (itemsRemaining <= 3) {
           loadMore(15, true);
         }
       }

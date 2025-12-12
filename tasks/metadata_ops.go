@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
 	"io"
@@ -293,6 +294,145 @@ func updateMediaMetadata(db *sql.DB, path, metadataType, value string) error {
 	return err
 }
 
+// extractVideoFrame extracts a single frame from a video file using ffmpeg.
+// It intelligently seeks to a representative frame (avoiding black intros) and handles edge cases:
+// - Short videos: seeks proportionally (10% duration, minimum 0.1s)
+// - Single-frame GIFs: extracts the only frame
+// - Very short videos: extracts first available frame
+//
+// Parameters:
+//   - ctx: context for cancellation
+//   - videoPath: absolute path to the video file
+//   - outputPath: desired output path (if empty, generates temp file)
+//
+// Returns:
+//   - string: path to the extracted frame (caller is responsible for cleanup)
+//   - error: if extraction fails
+func extractVideoFrame(ctx context.Context, videoPath string, outputPath string) (string, error) {
+	// Get video duration and frame count using ffprobe
+	duration, frameCount, err := getVideoMetadata(ctx, videoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to probe video metadata: %w", err)
+	}
+
+	// Generate output path if not provided
+	if outputPath == "" {
+		outputPath = filepath.Join(os.TempDir(), fmt.Sprintf("video_frame_%s_%d.jpg",
+			strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath)),
+			time.Now().UnixNano()))
+	}
+
+	// Determine optimal seek time based on video characteristics
+	var seekTime float64
+	if frameCount <= 1 {
+		// Single-frame video or GIF - extract the only frame
+		seekTime = 0
+	} else if duration < 1.0 {
+		// Very short video (< 1 second) - seek to 10% or 0.1s, whichever is smaller
+		seekTime = duration * 0.1
+		if seekTime < 0.1 {
+			seekTime = 0
+		}
+	} else if duration < 5.0 {
+		// Short video (1-5 seconds) - seek to 1 second or 20% duration
+		seekTime = 1.0
+		if duration*0.2 > 1.0 {
+			seekTime = duration * 0.2
+		}
+	} else {
+		// Normal video - seek to 3 seconds or 10% duration, whichever is larger (avoiding intros)
+		seekTime = 3.0
+		if duration*0.1 > seekTime {
+			seekTime = duration * 0.1
+		}
+		// Cap at 30 seconds to avoid seeking too far in very long videos
+		if seekTime > 30.0 {
+			seekTime = 30.0
+		}
+	}
+
+	// Build ffmpeg command with optimized parameters
+	// -ss before -i for fast seeking
+	// -frames:v 1 to extract exactly one frame
+	// -q:v 2 for high quality JPEG (scale 2-31, lower is better)
+	// -y to overwrite without asking
+	args := []string{
+		"-ss", fmt.Sprintf("%.3f", seekTime),
+		"-i", videoPath,
+		"-frames:v", "1",
+		"-q:v", "2",
+		"-y",
+		outputPath,
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("ffmpeg frame extraction failed (seek=%.2fs, duration=%.2fs, frames=%d): %w\nOutput: %s",
+			seekTime, duration, frameCount, err, string(output))
+	}
+
+	// Verify output file was created
+	if _, statErr := os.Stat(outputPath); statErr != nil {
+		return "", fmt.Errorf("ffmpeg completed but output file not found: %w", statErr)
+	}
+
+	return outputPath, nil
+}
+
+// getVideoMetadata retrieves duration and frame count from a video file using ffprobe
+func getVideoMetadata(ctx context.Context, videoPath string) (duration float64, frameCount int, err error) {
+	// Query duration
+	durationCmd := exec.CommandContext(ctx, "ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		videoPath)
+
+	durationOut, err := durationCmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("ffprobe duration query failed: %w", err)
+	}
+
+	durationStr := strings.TrimSpace(string(durationOut))
+	if durationStr != "" && durationStr != "N/A" {
+		duration, err = strconv.ParseFloat(durationStr, 64)
+		if err != nil {
+			// If parsing fails, try to extract from format
+			duration = 1.0 // Default fallback
+		}
+	} else {
+		duration = 1.0 // Default for files without duration metadata
+	}
+
+	// Get frame count
+	frameCmd := exec.CommandContext(ctx, "ffprobe",
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-count_frames",
+		"-show_entries", "stream=nb_read_frames",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		videoPath)
+
+	frameOut, err := frameCmd.Output()
+	if err == nil {
+		frameStr := strings.TrimSpace(string(frameOut))
+		if frameStr != "" && frameStr != "N/A" {
+			frameCount, _ = strconv.Atoi(frameStr)
+		}
+	}
+
+	// If frame count is unavailable, estimate from duration and assume 24fps minimum
+	if frameCount == 0 && duration > 0 {
+		frameCount = int(duration * 24) // Conservative estimate
+		if frameCount == 0 {
+			frameCount = 1 // At least one frame
+		}
+	}
+
+	return duration, frameCount, nil
+}
+
 func describeFileWithOllama(ctx context.Context, mediaPath, model string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(mediaPath))
 	var tempImagePath string
@@ -300,12 +440,11 @@ func describeFileWithOllama(ctx context.Context, mediaPath, model string) (strin
 	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".webp" {
 		tempImagePath = mediaPath
 	} else {
-		screenshotPath := filepath.Join(os.TempDir(), "ollama_screenshot_"+filepath.Base(mediaPath)+".jpg")
-		cleanupPaths = append(cleanupPaths, screenshotPath)
-		ffmpegCmd := exec.CommandContext(ctx, "ffmpeg", "-ss", "1", "-i", mediaPath, "-frames:v", "1", "-q:v", "2", "-y", screenshotPath)
-		if err := ffmpegCmd.Run(); err != nil {
-			return "", fmt.Errorf("ffmpeg screenshot failed: %w", err)
+		screenshotPath, err := extractVideoFrame(ctx, mediaPath, "")
+		if err != nil {
+			return "", fmt.Errorf("failed to extract video frame: %w", err)
 		}
+		cleanupPaths = append(cleanupPaths, screenshotPath)
 		tempImagePath = screenshotPath
 	}
 	resizedPath, err := resizeImageIfNeeded(tempImagePath)

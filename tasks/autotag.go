@@ -3,6 +3,8 @@ package tasks
 import (
 	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -46,13 +48,34 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		return nil
 	}
 
-	for idx, imagePath := range paths {
+	for idx, mediaPath := range paths {
 		select {
 		case <-ctx.Done():
 			q.PushJobStdout(j.ID, "autotag: task canceled")
 			_ = q.CancelJob(j.ID)
 			return ctx.Err()
 		default:
+		}
+
+		// Handle video files by extracting a frame first
+		imagePath := mediaPath
+		var tempFramePath string
+		ext := strings.ToLower(filepath.Ext(mediaPath))
+		isVideo := false
+		switch ext {
+		case ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".gif":
+			isVideo = true
+		}
+
+		if isVideo {
+			q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] extracting frame from video %s", idx+1, len(paths), filepath.Base(mediaPath)))
+			framePath, err := extractVideoFrame(ctx, mediaPath, "")
+			if err != nil {
+				q.PushJobStdout(j.ID, fmt.Sprintf("autotag: failed to extract frame from %s: %v", filepath.Base(mediaPath), err))
+				continue
+			}
+			tempFramePath = framePath
+			imagePath = framePath
 		}
 
 		cfg := appconfig.Get()
@@ -77,7 +100,7 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 		}
 		args = append(args, `--image=`+imagePath)
 
-		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] tagging %s", idx+1, len(paths), imagePath))
+		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: [%d/%d] tagging %s", idx+1, len(paths), filepath.Base(mediaPath)))
 
 		cmd, cleanup, err := embedexec.GetExec(ctx, "onnxtag", args...)
 		if err != nil {
@@ -130,6 +153,9 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 		if len(tags) == 0 {
 			q.PushJobStdout(j.ID, "autotag: no tags returned")
+			if tempFramePath != "" {
+				_ = os.Remove(tempFramePath)
+			}
 			continue
 		}
 
@@ -145,12 +171,20 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 			tagInfos = append(tagInfos, TagInfo{Label: name, Category: "Suggested"})
 		}
 
-		if err := insertTagsForFile(q.Db, imagePath, tagInfos); err != nil {
+		if err := insertTagsForFile(q.Db, mediaPath, tagInfos); err != nil {
 			q.PushJobStdout(j.ID, "autotag: failed to insert tags: "+err.Error())
+			if tempFramePath != "" {
+				_ = os.Remove(tempFramePath)
+			}
 			q.ErrorJob(j.ID)
 			return err
 		}
-		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: wrote %d Suggested tags for %s", len(tagInfos), imagePath))
+		q.PushJobStdout(j.ID, fmt.Sprintf("autotag: wrote %d Suggested tags for %s", len(tagInfos), filepath.Base(mediaPath)))
+
+		// Clean up temporary frame if we extracted one
+		if tempFramePath != "" {
+			_ = os.Remove(tempFramePath)
+		}
 	}
 
 	q.CompleteJob(j.ID)

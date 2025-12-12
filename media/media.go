@@ -527,7 +527,10 @@ func GetRandomItems(db *sql.DB, offset, limit int, searchQuery string, seed int6
 	// Order by a hash of the path with session seed to get pseudo-random but consistent ordering
 	// Uses SQLite's built-in functions for a deterministic shuffle
 	// The seed changes per page load but remains consistent during pagination within a session
-	orderBy := fmt.Sprintf(` ORDER BY ((m.rowid + %d) * 2654435761) %% 2147483647`, seed)
+	// Improved algorithm: uses two primes for better mixing and distribution
+	// 2654435761 is a large prime, 1640531527 is the golden ratio as a 32-bit integer
+	// Combines addition and multiplication for better bit distribution than simple addition alone
+	orderBy := fmt.Sprintf(` ORDER BY (((m.rowid + %d) * 2654435761 + %d * 1640531527) %% 2147483647)`, seed, seed)
 
 	// Parse search query if provided
 	sq, err := parseSearchQuery(searchQuery)
