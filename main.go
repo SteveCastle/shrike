@@ -28,6 +28,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/stevecastle/shrike/appconfig"
+	depspkg "github.com/stevecastle/shrike/deps"
 	"github.com/stevecastle/shrike/jobqueue"
 	"github.com/stevecastle/shrike/media"
 	"github.com/stevecastle/shrike/renderer"
@@ -1060,6 +1061,176 @@ func statsHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // -----------------------------------------------------------------------------
+// Dependencies page handlers
+// -----------------------------------------------------------------------------
+
+type dependenciesTemplateData struct {
+	Dependencies []dependencyStatusInfo
+}
+
+type dependencyStatusInfo struct {
+	ID               string
+	Name             string
+	Description      string
+	Status           depspkg.DependencyStatus
+	InstalledVersion string
+	LatestVersion    string
+	SizeFormatted    string
+	TargetDir        string
+}
+
+func dependenciesHandler(dependencies *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		allDeps := depspkg.GetAll()
+		metadata := depspkg.GetMetadataStore()
+		var depStatuses []dependencyStatusInfo
+
+		for _, dep := range allDeps {
+			exists, version, err := dep.Check(r.Context())
+
+			status := depspkg.StatusNotInstalled
+			installedVersion := ""
+
+			if err == nil && exists {
+				status = depspkg.StatusInstalled
+				installedVersion = version
+
+				// Check if outdated
+				if version != dep.LatestVersion && dep.LatestVersion != "" && version != "unknown" {
+					status = depspkg.StatusOutdated
+				}
+			}
+
+			// Check metadata for current status (e.g., downloading)
+			metaStatus := metadata.GetStatus(dep.ID)
+			if metaStatus == depspkg.StatusDownloading {
+				status = depspkg.StatusDownloading
+			}
+
+			sizeFormatted := formatBytes(dep.ExpectedSize)
+
+			depStatuses = append(depStatuses, dependencyStatusInfo{
+				ID:               dep.ID,
+				Name:             dep.Name,
+				Description:      dep.Description,
+				Status:           status,
+				InstalledVersion: installedVersion,
+				LatestVersion:    dep.LatestVersion,
+				SizeFormatted:    sizeFormatted,
+				TargetDir:        dep.TargetDir,
+			})
+		}
+
+		data := dependenciesTemplateData{
+			Dependencies: depStatuses,
+		}
+
+		if err := renderer.Templates().ExecuteTemplate(w, "dependencies", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func checkDependencyHandler(dependencies *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		depID := r.URL.Query().Get("id")
+		if depID == "" {
+			http.Error(w, "missing id parameter", http.StatusBadRequest)
+			return
+		}
+
+		dep, ok := depspkg.Get(depID)
+		if !ok {
+			http.Error(w, "unknown dependency", http.StatusNotFound)
+			return
+		}
+
+		exists, version, err := dep.Check(r.Context())
+		status := "not_installed"
+		if err == nil && exists {
+			status = "installed"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":      depID,
+			"status":  status,
+			"version": version,
+			"error":   err,
+		})
+	}
+}
+
+func downloadDependencyHandler(dependencies *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			DependencyID string `json:"dependency_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+
+		if req.DependencyID == "" {
+			http.Error(w, "dependency_id is required", http.StatusBadRequest)
+			return
+		}
+
+		// Verify dependency exists
+		if _, ok := depspkg.Get(req.DependencyID); !ok {
+			http.Error(w, "unknown dependency", http.StatusNotFound)
+			return
+		}
+
+		// Create download job
+		jobID, err := dependencies.Queue.AddJob(
+			"download-dependency",
+			[]string{},
+			req.DependencyID,
+			[]string{},
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"job_id":        jobID,
+			"dependency_id": req.DependencyID,
+		})
+	}
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// -----------------------------------------------------------------------------
 // Config page handlers
 // -----------------------------------------------------------------------------
 
@@ -1535,6 +1706,9 @@ func main() {
 	mux.HandleFunc("/stats", renderer.ApplyMiddlewares(statsHandler(deps)))
 	mux.HandleFunc("/ollama/models", renderer.ApplyMiddlewares(ollamaModelsHandler(deps)))
 	mux.HandleFunc("/tasks", renderer.ApplyMiddlewares(tasksHandler(deps)))
+	mux.HandleFunc("/dependencies", renderer.ApplyMiddlewares(dependenciesHandler(deps)))
+	mux.HandleFunc("/dependencies/check", renderer.ApplyMiddlewares(checkDependencyHandler(deps)))
+	mux.HandleFunc("/dependencies/download", renderer.ApplyMiddlewares(downloadDependencyHandler(deps)))
 	mux.HandleFunc("/open", renderer.ApplyMiddlewares(openPathHandler()))
 
 	// Serve embedded static files

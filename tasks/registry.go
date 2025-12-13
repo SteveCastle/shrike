@@ -15,10 +15,9 @@ type Task struct {
 
 type TaskMap map[string]Task
 
-var tasks TaskMap
+var tasks = make(TaskMap)
 
 func init() {
-	tasks = make(TaskMap)
 	// Register built-in tasks
 	RegisterTask("wait", "Wait", waitFn)
 	RegisterTask("gallery-dl", "gallery-dl", executeCommand)
