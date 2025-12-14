@@ -36,7 +36,7 @@ func init() {
 func checkWhisper(ctx context.Context) (bool, string, error) {
 	// Always use default installation location
 	targetDir := filepath.Join(os.Getenv("APPDATA"), "Lowkey Media Viewer", "whisper")
-	exePath := filepath.Join(targetDir, "Faster-Whisper-XXL", "faster-whisper-xxl.exe")
+	exePath := filepath.Join(targetDir, "faster-whisper-xxl.exe")
 
 	// Check if file exists
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
@@ -130,8 +130,8 @@ func downloadWhisper(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 	os.Remove(temp7z)
 	q.PushJobStdout(j.ID, "✓ Extraction complete")
 
-	// Verify the executable (extracts into Faster-Whisper-XXL subdirectory)
-	exePath := filepath.Join(dep.TargetDir, "Faster-Whisper-XXL", "faster-whisper-xxl.exe")
+	// Verify the executable
+	exePath := filepath.Join(dep.TargetDir, "faster-whisper-xxl.exe")
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
 		q.PushJobStdout(j.ID, "Warning: faster-whisper-xxl.exe not found in expected location")
 		q.PushJobStdout(j.ID, fmt.Sprintf("Expected: %s", exePath))
@@ -197,8 +197,21 @@ func extractFile(file *sevenzip.File, destDir string, jobID string, q *jobqueue.
 	// Get the file info
 	info := file.FileInfo()
 
+	// Strip "Faster-Whisper-XXL/" prefix from path to move files to root
+	fileName := file.Name
+	if len(fileName) > 18 && fileName[:18] == "Faster-Whisper-XXL/" {
+		fileName = fileName[19:] // Skip "Faster-Whisper-XXL/"
+	} else if len(fileName) > 18 && fileName[:18] == "Faster-Whisper-XXL\\" {
+		fileName = fileName[19:] // Skip "Faster-Whisper-XXL\"
+	}
+
+	// Skip if the filename is empty (was just the directory itself)
+	if fileName == "" {
+		return nil
+	}
+
 	// Construct destination path
-	destPath := filepath.Join(destDir, file.Name)
+	destPath := filepath.Join(destDir, fileName)
 
 	// Create parent directories if needed
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {

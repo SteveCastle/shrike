@@ -3,6 +3,7 @@ package deps
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/stevecastle/shrike/jobqueue"
@@ -95,4 +96,58 @@ func EnsureAvailable(ctx context.Context, q *jobqueue.Queue, depID string) error
 	}
 
 	return nil
+}
+
+// GetFilePath retrieves the full path to a specific file within a dependency.
+// It first checks the metadata store for tracked file paths, then falls back to
+// constructing the path from the dependency's target directory.
+//
+// Parameters:
+//   - depID: the dependency ID (e.g., "faster-whisper", "onnx-bundle")
+//   - fileName: the name of the file to retrieve (e.g., "faster-whisper-xxl.exe", "model.onnx")
+//
+// Returns the full path to the file, or an error if the dependency is not found.
+func GetFilePath(depID, fileName string) (string, error) {
+	// Get dependency metadata from store
+	metadata := GetMetadataStore()
+	meta, ok := metadata.Get(depID)
+
+	// If metadata exists and has the file tracked, use that path
+	if ok && meta.Files != nil {
+		if fileInfo, exists := meta.Files[fileName]; exists && fileInfo.Path != "" {
+			return fileInfo.Path, nil
+		}
+	}
+
+	// Fall back to constructing path from dependency definition
+	dep, ok := Get(depID)
+	if !ok {
+		return "", fmt.Errorf("unknown dependency: %s", depID)
+	}
+
+	// Default: file is directly in the target directory
+	return filepath.Join(dep.TargetDir, fileName), nil
+}
+
+// GetInstallPath retrieves the base installation directory for a dependency.
+//
+// Parameters:
+//   - depID: the dependency ID (e.g., "faster-whisper", "onnx-bundle")
+//
+// Returns the installation directory path, or an error if the dependency is not found.
+func GetInstallPath(depID string) (string, error) {
+	// Try metadata store first
+	metadata := GetMetadataStore()
+	meta, ok := metadata.Get(depID)
+	if ok && meta.InstallPath != "" {
+		return meta.InstallPath, nil
+	}
+
+	// Fall back to dependency definition
+	dep, ok := Get(depID)
+	if !ok {
+		return "", fmt.Errorf("unknown dependency: %s", depID)
+	}
+
+	return dep.TargetDir, nil
 }

@@ -27,7 +27,7 @@ func init() {
 		Check:         checkONNX,
 		Download:      downloadONNX,
 		LatestVersion: "wd-eva02-large-v3",
-		DownloadURL:   "", // To be configured
+		DownloadURL:   "",                // To be configured
 		ExpectedSize:  500 * 1024 * 1024, // 500MB
 	})
 }
@@ -124,7 +124,7 @@ func downloadONNX(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 	// Determine architecture and download URL
 	arch := runtime.GOARCH
-	onnxVersion := "1.16.3"
+	onnxVersion := "1.23.1" // Version 1.20.1+ required for ONNX opset 22 support (models using ONNX 1.17+)
 	var onnxRuntimeURL string
 	tempZip := filepath.Join(dep.TargetDir, "onnxruntime.zip")
 

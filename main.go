@@ -1077,6 +1077,7 @@ type dependencyStatusInfo struct {
 	LatestVersion    string
 	SizeFormatted    string
 	TargetDir        string
+	JobID            string
 }
 
 func dependenciesHandler(dependencies *Dependencies) http.HandlerFunc {
@@ -1112,6 +1113,9 @@ func dependenciesHandler(dependencies *Dependencies) http.HandlerFunc {
 				status = depspkg.StatusDownloading
 			}
 
+			// Get active job ID if any
+			jobID := metadata.GetJobID(dep.ID)
+
 			sizeFormatted := formatBytes(dep.ExpectedSize)
 
 			depStatuses = append(depStatuses, dependencyStatusInfo{
@@ -1123,6 +1127,7 @@ func dependenciesHandler(dependencies *Dependencies) http.HandlerFunc {
 				LatestVersion:    dep.LatestVersion,
 				SizeFormatted:    sizeFormatted,
 				TargetDir:        dep.TargetDir,
+				JobID:            jobID,
 			})
 		}
 
@@ -1208,6 +1213,11 @@ func downloadDependencyHandler(dependencies *Dependencies) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// Store job ID in metadata
+		metadata := depspkg.GetMetadataStore()
+		metadata.SetJobID(req.DependencyID, jobID)
+		metadata.Save()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{

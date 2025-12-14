@@ -7,10 +7,29 @@
     <title>Shrike Configuration</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <style>
+      body {
+        overflow: hidden;
+        height: 100vh;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .config-wrapper {
+        flex: 1;
+        overflow-y: auto;
+        padding-bottom: var(--space-5);
+      }
+
       .config-sections {
         display: flex;
         flex-direction: column;
         gap: var(--space-4);
+        margin-bottom: var(--space-6);
       }
 
       .config-card {
@@ -127,8 +146,17 @@
       .actions {
         display: flex;
         gap: var(--space-3);
-        margin-top: var(--space-4);
         flex-wrap: wrap;
+      }
+
+      .config-footer {
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--border-subtle);
+        padding: var(--space-4) var(--space-5);
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+        z-index: 10;
       }
 
       .btn {
@@ -193,12 +221,13 @@
     <div class="container">
       {{ template "topnav" . }}
 
-      <div class="config-card" style="margin-bottom: var(--space-4)">
-        <div class="label">Config file path</div>
-        <div class="value">{{.ConfigPath}}</div>
-      </div>
+      <div class="config-wrapper">
+        <div class="config-card" style="margin-bottom: var(--space-4)">
+          <div class="label">Config file path</div>
+          <div class="value">{{.ConfigPath}}</div>
+        </div>
 
-      <div class="config-sections">
+        <div class="config-sections">
         <div class="config-card config-card--blue">
           <div class="section-title">⚙️ General</div>
           <div class="fields">
@@ -273,6 +302,7 @@
             <div class="field">
               <label class="label">Model path</label>
               <input
+                disabled
                 id="onnx-model-path"
                 class="input"
                 type="text"
@@ -337,6 +367,7 @@
             <div class="field">
               <label class="label">Faster-Whisper executable</label>
               <input
+                disabled
                 id="faster-whisper-path"
                 class="input"
                 type="text"
@@ -345,16 +376,17 @@
             </div>
           </div>
         </div>
-
-        <div class="config-card">
-          <div class="actions">
-            <button class="btn btn-primary" id="save-btn">Save</button>
-            <button class="btn btn-secondary" id="reload-btn">
-              Reload from file
-            </button>
-          </div>
-          <div id="status" class="status"></div>
         </div>
+      </div>
+
+      <div class="config-footer">
+        <div class="actions">
+          <button class="btn btn-primary" id="save-btn">Save</button>
+          <button class="btn btn-secondary" id="reload-btn">
+            Reload from file
+          </button>
+        </div>
+        <div id="status" class="status"></div>
       </div>
     </div>
 

@@ -38,6 +38,7 @@ func downloadDependencyTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) 
 	if err := dep.Download(j, q, mu); err != nil {
 		q.PushJobStdout(j.ID, fmt.Sprintf("Download failed: %v", err))
 		metadata.UpdateStatus(depID, deps.StatusNotInstalled)
+		metadata.ClearJobID(depID)
 		metadata.Save()
 		q.ErrorJob(j.ID)
 		return err
@@ -45,6 +46,7 @@ func downloadDependencyTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) 
 
 	q.PushJobStdout(j.ID, fmt.Sprintf("Successfully downloaded %s", dep.Name))
 	metadata.UpdateStatus(depID, deps.StatusInstalled)
+	metadata.ClearJobID(depID)
 	metadata.Save()
 	q.CompleteJob(j.ID)
 	return nil

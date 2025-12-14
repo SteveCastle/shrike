@@ -224,18 +224,15 @@
     <div class="dependencies-container">
       {{ template "topnav" . }}
 
-      <div class="page-header">
-        <h1 class="page-title">External Dependencies</h1>
-        <p class="page-subtitle">
-          Manage external dependencies required for AI-powered features
-        </p>
-      </div>
-
       <div id="status-message" class="status-message"></div>
 
       <div class="dependencies-grid">
         {{ range .Dependencies }}
-        <div class="dependency-card" data-dep-id="{{ .ID }}">
+        <div
+          class="dependency-card"
+          data-dep-id="{{ .ID }}"
+          data-job-id="{{ .JobID }}"
+        >
           <div class="dep-header">
             <h3 class="dep-name">{{ .Name }}</h3>
             <span class="status-badge status-{{ .Status }}">{{ .Status }}</span>
@@ -267,6 +264,29 @@
               <span class="info-value">{{ .TargetDir }}</span>
             </div>
             {{ end }}
+          </div>
+
+          <div
+            class="download-progress"
+            style="
+              display: none;
+              margin-bottom: var(--space-4);
+              padding: var(--space-3);
+              background: var(--bg-surface);
+              border-radius: var(--radius-md);
+              border: 1px solid var(--border-subtle);
+            "
+          >
+            <div
+              style="
+                font-size: var(--text-xs);
+                color: var(--text-muted);
+                margin-bottom: var(--space-2);
+                font-family: var(--font-mono);
+                max-height: 120px;
+                overflow-y: auto;
+              "
+            ></div>
           </div>
 
           <div class="dep-actions">
@@ -312,14 +332,79 @@
         eventSource.addEventListener("update", (event) => {
           const data = JSON.parse(event.data);
           if (data.job && data.job.command === "download-dependency") {
-            // Dependency download job updated
-            console.log("Dependency download update:", data);
+            updateDependencyCard(data.job);
+          }
+        });
+
+        // Listen for stdout events
+        eventSource.addEventListener("message", (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type && data.type.startsWith("stdout-")) {
+            const jobID = data.type.replace("stdout-", "");
+            const card = document.querySelector(`[data-job-id="${jobID}"]`);
+            if (card) {
+              const progressDiv = card.querySelector(".download-progress");
+              const outputDiv = progressDiv.querySelector("div");
+              if (data.data) {
+                outputDiv.textContent += data.data + "\n";
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+              }
+            }
           }
         });
 
         eventSource.addEventListener("error", (event) => {
           console.error("SSE error:", event);
         });
+      }
+
+      function updateDependencyCard(job) {
+        // Find the card for this dependency
+        const depID = job.input;
+        const card = document.querySelector(`[data-dep-id="${depID}"]`);
+        if (!card) return;
+
+        const statusBadge = card.querySelector(".status-badge");
+        const actionsDiv = card.querySelector(".dep-actions");
+        const progressDiv = card.querySelector(".download-progress");
+
+        // Update job ID
+        card.setAttribute("data-job-id", job.id);
+
+        // Update based on job state
+        if (job.state === "pending" || job.state === "in_progress") {
+          statusBadge.textContent = "downloading";
+          statusBadge.className = "status-badge status-downloading";
+          progressDiv.style.display = "block";
+
+          // Update buttons
+          actionsDiv.innerHTML = `
+            <button class="btn btn-primary" disabled>Downloading...</button>
+            <button class="btn btn-tertiary" onclick="checkDependency('${depID}')">Check Status</button>
+          `;
+        } else if (job.state === "completed") {
+          statusBadge.textContent = "installed";
+          statusBadge.className = "status-badge status-installed";
+          progressDiv.style.display = "none";
+
+          actionsDiv.innerHTML = `
+            <button class="btn btn-success" disabled>Installed</button>
+            <button class="btn btn-tertiary" onclick="checkDependency('${depID}')">Check Status</button>
+          `;
+
+          showStatusMessage(`${depID} installed successfully!`, "success");
+        } else if (job.state === "error" || job.state === "cancelled") {
+          statusBadge.textContent = "not_installed";
+          statusBadge.className = "status-badge status-not_installed";
+          progressDiv.style.display = "none";
+
+          actionsDiv.innerHTML = `
+            <button class="btn btn-primary" onclick="downloadDependency('${depID}')">Download</button>
+            <button class="btn btn-tertiary" onclick="checkDependency('${depID}')">Check Status</button>
+          `;
+
+          showStatusMessage(`Download failed for ${depID}`, "error");
+        }
       }
 
       function showStatusMessage(message, type) {
@@ -332,6 +417,11 @@
       }
 
       function downloadDependency(depID) {
+        const card = document.querySelector(`[data-dep-id="${depID}"]`);
+        const statusBadge = card.querySelector(".status-badge");
+        const progressDiv = card.querySelector(".download-progress");
+        const actionsDiv = card.querySelector(".dep-actions");
+
         fetch("/dependencies/download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -342,17 +432,25 @@
             return r.json();
           })
           .then((data) => {
-            showStatusMessage(
-              `Download started. Job ID: ${data.job_id}. Check the Jobs page for progress.`,
-              "success"
-            );
-            // Redirect to jobs page to watch progress
-            setTimeout(() => {
-              window.location.href = "/jobs";
-            }, 2000);
+            // Update UI immediately
+            card.setAttribute("data-job-id", data.job_id);
+            statusBadge.textContent = "downloading";
+            statusBadge.className = "status-badge status-downloading";
+            progressDiv.style.display = "block";
+            progressDiv.querySelector("div").textContent = "";
+
+            actionsDiv.innerHTML = `
+              <button class="btn btn-primary" disabled>Downloading...</button>
+              <button class="btn btn-tertiary" onclick="checkDependency('${depID}')">Check Status</button>
+            `;
+
+            showStatusMessage(`Download started for ${depID}`, "success");
           })
           .catch((err) => {
-            showStatusMessage(`Failed to start download: ${err.message}`, "error");
+            showStatusMessage(
+              `Failed to start download: ${err.message}`,
+              "error"
+            );
           });
       }
 
@@ -373,12 +471,31 @@
             }, 1500);
           })
           .catch((err) => {
-            showStatusMessage(`Failed to check status: ${err.message}`, "error");
+            showStatusMessage(
+              `Failed to check status: ${err.message}`,
+              "error"
+            );
           });
       }
 
-      // Connect to SSE on page load
-      connectSSE();
+      // Initialize on page load
+      document.addEventListener("DOMContentLoaded", () => {
+        // Connect to SSE
+        connectSSE();
+
+        // Initialize any cards that already have active jobs
+        document.querySelectorAll(".dependency-card").forEach((card) => {
+          const jobID = card.getAttribute("data-job-id");
+          if (jobID) {
+            // Show progress section for active jobs
+            const progressDiv = card.querySelector(".download-progress");
+            const statusBadge = card.querySelector(".status-badge");
+            if (statusBadge.textContent === "downloading") {
+              progressDiv.style.display = "block";
+            }
+          }
+        });
+      });
     </script>
   </body>
 </html>

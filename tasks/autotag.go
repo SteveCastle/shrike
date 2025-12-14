@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/stevecastle/shrike/appconfig"
+	"github.com/stevecastle/shrike/deps"
 	"github.com/stevecastle/shrike/embedexec"
 	"github.com/stevecastle/shrike/jobqueue"
 )
@@ -80,18 +81,36 @@ func autotagTask(j *jobqueue.Job, q *jobqueue.Queue, mu *sync.Mutex) error {
 
 		cfg := appconfig.Get()
 		args := []string{}
-		if strings.TrimSpace(cfg.OnnxTagger.LabelsPath) != "" {
+
+		// Try to get paths from dependency system first, fall back to config
+		labelsPath, err := deps.GetFilePath("onnx-bundle", "selected_tags.csv")
+		if err == nil && labelsPath != "" {
+			args = append(args, `--labels=`+labelsPath)
+		} else if strings.TrimSpace(cfg.OnnxTagger.LabelsPath) != "" {
 			args = append(args, `--labels=`+cfg.OnnxTagger.LabelsPath)
 		}
-		if strings.TrimSpace(cfg.OnnxTagger.ConfigPath) != "" {
+
+		configPath, err := deps.GetFilePath("onnx-bundle", "config.json")
+		if err == nil && configPath != "" {
+			args = append(args, `--config=`+configPath)
+		} else if strings.TrimSpace(cfg.OnnxTagger.ConfigPath) != "" {
 			args = append(args, `--config=`+cfg.OnnxTagger.ConfigPath)
 		}
-		if strings.TrimSpace(cfg.OnnxTagger.ModelPath) != "" {
+
+		modelPath, err := deps.GetFilePath("onnx-bundle", "model.onnx")
+		if err == nil && modelPath != "" {
+			args = append(args, `--model=`+modelPath)
+		} else if strings.TrimSpace(cfg.OnnxTagger.ModelPath) != "" {
 			args = append(args, `--model=`+cfg.OnnxTagger.ModelPath)
 		}
-		if strings.TrimSpace(cfg.OnnxTagger.ORTSharedLibraryPath) != "" {
+
+		ortPath, err := deps.GetFilePath("onnx-bundle", "onnxruntime.dll")
+		if err == nil && ortPath != "" {
+			args = append(args, `--ort=`+ortPath)
+		} else if strings.TrimSpace(cfg.OnnxTagger.ORTSharedLibraryPath) != "" {
 			args = append(args, `--ort=`+cfg.OnnxTagger.ORTSharedLibraryPath)
 		}
+
 		if cfg.OnnxTagger.GeneralThreshold > 0 {
 			args = append(args, `--general-thresh=`+fmt.Sprintf("%g", cfg.OnnxTagger.GeneralThreshold))
 		}

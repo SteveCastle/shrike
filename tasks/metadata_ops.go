@@ -27,6 +27,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/stevecastle/shrike/appconfig"
+	"github.com/stevecastle/shrike/deps"
 	"github.com/stevecastle/shrike/jobqueue"
 )
 
@@ -534,10 +535,17 @@ func callOllamaVision(ctx context.Context, imagePath, model string) (string, err
 }
 
 func generateTranscriptWithFasterWhisper(ctx context.Context, filePath string) (string, error) {
-	exePath := appconfig.Get().FasterWhisperPath
-	if strings.TrimSpace(exePath) == "" {
-		exePath = "faster-whisper-xxl.exe"
+	// Try to get the path from the dependency system first
+	exePath, err := deps.GetFilePath("faster-whisper", "faster-whisper-xxl.exe")
+	if err != nil {
+		// Fall back to config if dependency system doesn't have it\
+		fmt.Printf("error getting faster-whisper path: %v\n", err)
+		exePath = appconfig.Get().FasterWhisperPath
+		if strings.TrimSpace(exePath) == "" {
+			return "", fmt.Errorf("faster-whisper not found: dependency not installed and FasterWhisperPath not configured. Please install faster-whisper from the Dependencies page")
+		}
 	}
+
 	cmd := exec.CommandContext(ctx, exePath, "--beep_off", "--output_format=vtt", "--output_dir=source", "--model", "large-v2", filePath)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("faster-whisper-xxl failed: %w", err)

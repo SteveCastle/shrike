@@ -51,6 +51,50 @@ func (s JobState) String() string {
 	}
 }
 
+// MarshalJSON serializes JobState as a lowercase string for JSON.
+func (s JobState) MarshalJSON() ([]byte, error) {
+	var str string
+	switch s {
+	case StatePending:
+		str = "pending"
+	case StateInProgress:
+		str = "in_progress"
+	case StateCompleted:
+		str = "completed"
+	case StateCancelled:
+		str = "cancelled"
+	case StateError:
+		str = "error"
+	default:
+		str = "unknown"
+	}
+	return json.Marshal(str)
+}
+
+// UnmarshalJSON deserializes JobState from a string.
+func (s *JobState) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+
+	switch str {
+	case "pending":
+		*s = StatePending
+	case "in_progress":
+		*s = StateInProgress
+	case "completed":
+		*s = StateCompleted
+	case "cancelled":
+		*s = StateCancelled
+	case "error":
+		*s = StateError
+	default:
+		*s = StatePending
+	}
+	return nil
+}
+
 // Job represents an individual task in the queue.
 type Job struct {
 	ID           string             `json:"id"` // Unique identifier for the job

@@ -23,6 +23,7 @@ type DependencyMetadata struct {
 	LastChecked      time.Time           `json:"lastChecked"`
 	LastUpdated      time.Time           `json:"lastUpdated"`
 	Files            map[string]FileInfo `json:"files"` // Track installed files
+	JobID            string              `json:"jobId"`  // Active download job ID
 }
 
 // MetadataStore manages dependency metadata persistence.
@@ -158,4 +159,52 @@ func (m *MetadataStore) UpdateStatus(depID string, status DependencyStatus) erro
 	m.Dependencies[depID] = meta
 
 	return nil
+}
+
+// SetJobID sets the active job ID for a dependency download.
+func (m *MetadataStore) SetJobID(depID string, jobID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	meta, ok := m.Dependencies[depID]
+	if !ok {
+		meta = DependencyMetadata{
+			Files: make(map[string]FileInfo),
+		}
+	}
+
+	meta.JobID = jobID
+	meta.LastChecked = time.Now()
+	m.Dependencies[depID] = meta
+
+	return nil
+}
+
+// ClearJobID clears the active job ID for a dependency.
+func (m *MetadataStore) ClearJobID(depID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	meta, ok := m.Dependencies[depID]
+	if !ok {
+		return nil
+	}
+
+	meta.JobID = ""
+	m.Dependencies[depID] = meta
+
+	return nil
+}
+
+// GetJobID returns the active job ID for a dependency.
+func (m *MetadataStore) GetJobID(depID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	meta, ok := m.Dependencies[depID]
+	if !ok {
+		return ""
+	}
+
+	return meta.JobID
 }
